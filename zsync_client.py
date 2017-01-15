@@ -5,19 +5,16 @@ import os
 import time
 from threading import Thread
 from zhelpers import socket_set_hwm, zpipe
-from zsync_server import CHUNK_SIZE, PIPELINE, mypath
+from zsync_server import CHUNK_SIZE, PIPELINE
 
-ip = '192.168.11.249'
+ip = '192.168.1.107'
 ports = [13330, 13331, 13332]
 
-
-def recv_one():
-    return
 
 def client_thread(ctx, port):
     dealer = ctx.socket(zmq.DEALER)
     socket_set_hwm(dealer, PIPELINE)
-    dealer.connect("tcp://%s:%d" % (ip, port))
+    dealer.connect('tcp://%s:%d' % (ip, port))
 
     credit = PIPELINE   # Up to PIPELINE chunks in transit
 
@@ -35,7 +32,7 @@ def client_thread(ctx, port):
         else:
             raise
 
-    outf = open(mypath + '/' + fname, 'w')
+    outf = open(fname, 'w')
 
     while True:
         while credit:

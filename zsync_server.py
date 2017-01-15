@@ -33,6 +33,10 @@ def send_one(socket):
     assert command == b"fetch"
     socket.send_multipart([identity, fname])
 
+    print 'sending ' + fname
+
+    file = open(fname, 'r')
+
     while True:
         try:
             msg = socket.recv_multipart()
@@ -55,6 +59,7 @@ def send_one(socket):
         # Send resulting chunk to client
         socket.send_multipart([identity, data])
 
+    file.close()
     return True
 
 def server_thread(ctx, port):
