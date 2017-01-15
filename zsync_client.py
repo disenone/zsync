@@ -5,16 +5,15 @@ import os
 import time
 from threading import Thread
 from zhelpers import socket_set_hwm, zpipe
-from zsync_server import CHUNK_SIZE, PIPELINE
-
-ip = '192.168.1.107'
-ports = [13330, 13331, 13332]
+from zsync_server import CHUNK_SIZE, PIPELINE, ports, ip
 
 
 def client_thread(ctx, port):
     dealer = ctx.socket(zmq.DEALER)
     socket_set_hwm(dealer, PIPELINE)
-    dealer.connect('tcp://%s:%d' % (ip, port))
+    tcp = 'tcp://%s:%d' % (ip, port)
+    dealer.connect(tcp)
+    print 'connecting %s \n' % tcp
 
     credit = PIPELINE   # Up to PIPELINE chunks in transit
 
@@ -34,12 +33,16 @@ def client_thread(ctx, port):
 
     outf = open(fname, 'w')
 
+    print 'fetching %s \n' % fname
+
+    recvd = {}
+
     while True:
         while credit:
             # ask for next chunk
             dealer.send_multipart([
                 b"fetch",
-                b"%i" % total,
+                b"%i" % offset,
                 b"%i" % CHUNK_SIZE,
             ])
 
@@ -47,24 +50,42 @@ def client_thread(ctx, port):
             credit -= 1
 
         try:
-            chunk = dealer.recv()
+            msg = dealer.recv_multipart()
         except zmq.ZMQError as e:
             if e.errno == zmq.ETERM:
                 return   # shutting down, quit
             else:
                 raise
 
-        outf.write(chunk)
+        offset_str, chunk = msg
 
         chunks += 1
         credit += 1
-        size = len(chunk)
-        total += size
-        if size < CHUNK_SIZE:
-            break   # Last chunk received; exit
 
+        roffset = int(offset_str)
+        if total != roffset:
+            recvd[roffset] = chunk
+            print 'total %d save offset %d' % (total, roffset)
+        else:
+            outf.write(chunk)
+            last_size = len(chunk)
+            total += last_size
+
+            for roff in sorted(recvd.keys()):
+                if roff == total:
+                    chunk = recvd.pop(roff)
+                    outf.write(chunk)
+                    last_size = len(chunk)
+                    total += last_size
+                else:
+                    break
+
+            if last_size < CHUNK_SIZE:
+                break   # Last chunk received; exit
+
+    outf.close()
+    dealer.send_multipart([b'close', b'0', b'0'])
     print ("%i chunks received, %i bytes" % (chunks, total))
-    pipe.send(b"OK")
     return
 
 if __name__ == '__main__':

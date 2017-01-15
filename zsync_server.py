@@ -9,6 +9,7 @@ from multiprocessing import Queue
 
 fileq = None
 mypath = 'sync_files'
+ip = '192.168.1.107'
 ports = [13330, 13331, 13332]
 CHUNK_SIZE = 250000
 PIPELINE = 10
@@ -47,7 +48,10 @@ def send_one(socket):
                 raise
     
         identity, command, offset_str, chunksz_str = msg
-        
+
+        if command == b'close':
+            break
+
         assert command == b"fetch"
         offset = int(offset_str)
         chunksz = int(chunksz_str)
@@ -57,15 +61,17 @@ def send_one(socket):
         data = file.read(chunksz)
 
         # Send resulting chunk to client
-        socket.send_multipart([identity, data])
+        socket.send_multipart([identity, offset_str, data])
 
     file.close()
     return True
 
 def server_thread(ctx, port):
     router = ctx.socket(zmq.ROUTER)
-    socket_set_hwm(router, PIPELINE)
-    router.bind("tcp://*:%d" % port)
+    socket_set_hwm(router, PIPELINE * 2)
+    tcp = "tcp://*:%d" % port
+    router.bind(tcp)
+    print 'binding %s \n' % tcp
     
     while True:
         ret = send_one(router)
