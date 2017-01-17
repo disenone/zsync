@@ -10,7 +10,11 @@ def run():
     dealer.bind('tcp://*:5556')
     router.bind('tcp://*:5555')
 
-    zmq.proxy(router, dealer)
+    try:
+        zmq.proxy(router, dealer)
+    except:
+        print 'except'
+        raise
     return
 
 if __name__ == '__main__':
