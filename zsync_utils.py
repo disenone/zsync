@@ -19,4 +19,5 @@ class CommonFile(object):
             self.ip = 'localhost'
         return
 
-    
+    def isValid(self):
+        return self.path and self.ip

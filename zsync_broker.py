@@ -2,13 +2,17 @@
 
 import zmq
 
-def run():
+def run(args):
     ctx = zmq.Context()
     dealer = ctx.socket(zmq.DEALER)
     router = ctx.socket(zmq.ROUTER)
 
-    dealer.bind('tcp://*:5556')
-    router.bind('tcp://*:5555')
+    if args.sp == args.cp:
+        print 'ERROR: service port must be different from client port'
+        return
+
+    dealer.bind('tcp://*:%s' % args.sp)
+    router.bind('tcp://*:%s' % args.cp)
 
     try:
         zmq.proxy(router, dealer)
@@ -18,4 +22,8 @@ def run():
     return
 
 if __name__ == '__main__':
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-sp', type=str, help='service port', default='5556')
+    parser.add_argument('-cp', type=str, help='client port', default='5555')
+    args = parser.parse_args()
+    run(args)
