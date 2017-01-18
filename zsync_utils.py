@@ -14,7 +14,7 @@ class CommonFile(object):
         match = ip_pattern.match(self.path)
         if match:
             self.path = self.path[len(self.ip):]
-            self.ip = match.group()
+            self.ip = match.group()[:-1]
         else:
             self.ip = 'localhost'
         return
