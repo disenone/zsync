@@ -17,7 +17,7 @@ def run(args):
 
     ctx = zmq.Context()
     dealer = ctx.socket(zmq.DEALER)
-    dealer.connect('tcp://%s:%s' % (dst.ip, args.port))
+    dealer.connect('tcp://%s:%s' % (dst.ip, args.p))
 
     while True:
         msg = raw_input('input: ')
@@ -37,6 +37,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    #print args
-    #parser.print_help()
+    # print args
+    # parser.print_help()
     run(args)
