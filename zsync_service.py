@@ -13,8 +13,6 @@ def run():
         msg = dealer.recv_multipart()
         print msg
         dealer.send_multipart([msg[0], msg[1], 'reply'])
-        dealer.send_multipart([msg[0], msg[1], 'abc'])
-        dealer.send_multipart([msg[0], msg[1], 'def'])
     return
 
 if __name__ == '__main__':
