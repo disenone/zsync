@@ -21,3 +21,6 @@ class CommonFile(object):
 
     def isValid(self):
         return self.path and self.ip
+
+    def full(self):
+        return self.ip + ':' + self.path

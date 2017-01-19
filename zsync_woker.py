@@ -5,6 +5,7 @@ import sys
 import argparse
 import zsync_utils
 import threading
+import time
 
 
 def run(args):
@@ -19,18 +20,34 @@ def run(args):
         print 'ERROR: dst is invalid'
         return
 
+    if args.timeout <= 0:
+        print 'ERROR: timeout is invalid, must be > 0'
+        return
+
+    if args.thread_num <= 0:
+        print 'ERROR: thread_num is invalid, must be > 0'
+        return
+
     thread_num = args.thread_num
 
-    print 'src = %s\ndst = %s\n' % (src, dst)
+    print 'src = %s\ndst = %s\n' % (src.full(), dst.full())
 
     ctx = zmq.Context()
     dealer = ctx.socket(zmq.DEALER)
     dealer.connect('tcp://%s:%s' % (src.ip, args.p))
 
+    # 退出时不等待发送缓冲区发送数据，不设置会很有可能导致程序无法退出 
+    # http://stackoverflow.com/questions/7939977/zeromq-with-python-hangs-if-connecting-to-invalid-socket
+    dealer.linger = 0  
+
     poller = zmq.Poller()
     poller.register(dealer, zmq.POLLIN)
 
     dealer.send_multipart([src.path, str(thread_num)])
+
+    # 10秒的连接时间，如果超过10秒都没有收到一次数据，判断连接不上
+    connected = False
+    connect_time = time.time()
 
     while True:
         try:
@@ -38,7 +55,20 @@ def run(args):
 
             if socks.get(dealer) == zmq.POLLIN:
                 msg = dealer.recv_multipart(zmq.NOBLOCK)
+                if not msg:
+                    continue
+
+                connected = True
                 print msg
+                if msg[0] == 'error':
+                    print 'ERROR: %s' % msg[1]
+                    break
+
+            if not connected:
+                if time.time() - connect_time >= args.timeout:
+                    print 'connect timeout, exit'
+                    break
+
         except KeyboardInterrupt:
             print 'user interrupted, exit'
             break
@@ -53,6 +83,7 @@ if __name__ == '__main__':
     parser.add_argument('-p', type=str, help='port', default='5555')
     parser.add_argument('--thread-num', type=int, default=3, help='sync thread num')
     parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
+    parser.add_argument('--timeout', type=int, default=5, help='connect timeout second')
 
     args = parser.parse_args()
 
