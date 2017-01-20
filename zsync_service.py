@@ -40,13 +40,14 @@ class SendThread(threading.Thread):
             if self.stoped:
                 break
 
+            print 'go in poll'
             socks = dict(poller.poll(1000))
             if socks.get(self.sock) == zmq.POLLIN:
                 msg = self.sock.recv_multipart(zmq.NOBLOCK)
-                if not msg:
-                    continue
                 print msg
+            print 'go out poll'
 
+            print 'before send'
             self.send('test', 'hello world!')
             print 'sending msg'
         
