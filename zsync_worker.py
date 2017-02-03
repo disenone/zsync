@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 
-import zmq
 import sys
 import argparse
 import zsync_utils
 import threading
 import time
 import cPickle
+import zmq
 
 CHUNK_SIZE = 250000
 PIPELINE = 10
 
 class RecvThread(threading.Thread):
     def __init__(self, ctx, ip, port):
-        threading.Thread.__init__(self)  
+        threading.Thread.__init__(self)
         self.ctx = ctx
         self.ip = ip
         self.port = port
@@ -31,6 +31,7 @@ class RecvThread(threading.Thread):
         poller = zmq.Poller()
         poller.register(self.sock, zmq.POLLIN)
 
+        num = 0
         while True:
             if self.stoped:
                 break
@@ -39,10 +40,15 @@ class RecvThread(threading.Thread):
             if socks.get(self.sock) == zmq.POLLIN:
                 msg = self.sock.recv_multipart(zmq.NOBLOCK)
                 if not msg:
-                    continue
+                    break
                 print msg
-                self.sock.send_multipart(msg)
-        
+                print 'before send'
+                self.sock.send_multipart(msg, zmq.NOBLOCK)
+                print 'send end'
+                num += 1
+                if num > 10:
+                    self.sock.close()
+                    break
         return
 
     def send(self, *msgs):
@@ -96,7 +102,7 @@ def run(args):
     connect_time = time.time()
 
     threads = []
-
+    
     while True:
         try:
             socks = dict(poller.poll(1000))

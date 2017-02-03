@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import zmq
 import argparse
+import zmq
+
 
 def run(args):
     ctx = zmq.Context()

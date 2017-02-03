@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 
-import zmq
 import argparse
 import os
 from collections import deque
 import threading
 import cPickle
 import time
+import zmq
 
 
 class SendThread(threading.Thread):
@@ -33,7 +33,7 @@ class SendThread(threading.Thread):
             return
 
         poller = zmq.Poller()
-        poller.register(self.sock, zmq.POLLIN)
+        poller.register(self.sock)
 
         while True:
             print 'thread %d, ' % self.thread_id,  self.stoped
@@ -42,25 +42,31 @@ class SendThread(threading.Thread):
 
             print 'go in poll'
             socks = dict(poller.poll(1000))
-            if socks.get(self.sock) == zmq.POLLIN:
+            if socks.get(self.sock) & zmq.POLLIN == zmq.POLLIN:
                 msg = self.sock.recv_multipart(zmq.NOBLOCK)
                 print msg
+                if not msg:
+                    raise ValueError('receive empty msg')
+                    break
             print 'go out poll'
 
-            print 'before send'
-            self.send('test', 'hello world!')
-            print 'sending msg'
-        
+            if socks.get(self.sock) & zmq.POLLOUT == zmq.POLLOUT:
+                print 'before send'
+                self.send('test', 'hello world!')
+                print 'sending msg'
+
         print 'thread %d exit' % self.thread_id
 
         return
 
     def stop(self):
         self.stoped = True
+        #self.sock.close()
+        print 'stoped'
         return
 
     def send(self, *msgs):
-        self.sock.send_multipart(msgs)
+        self.sock.send_multipart(msgs, zmq.NOBLOCK)
         return
 
 class NewSend(object):
@@ -121,7 +127,7 @@ class NewSend(object):
                     break
                 print 'checking states', states
             except KeyboardInterrupt:
-                [thread.stop() for thread in self.threads]
+                self.stop()
                 raise
         return
 
@@ -158,8 +164,6 @@ def run(args):
                 task.run()
 
         except KeyboardInterrupt:
-            if task:
-                task.stop()
             print 'user interrupted, exit'
             break
     return
