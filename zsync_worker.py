@@ -75,7 +75,7 @@ def run(args):
                     ports = cPickle.loads(msg[1])
                     print 'ports: ', ports
 
-                    threads = [zsync_thread.RecvThread(ctx, src.ip, port) for port in ports]
+                    threads = [zsync_thread.RecvThread(ctx, src.ip, port, 10) for port in ports]
                     [thread.start() for thread in threads]
 
             if not connected:
@@ -87,6 +87,10 @@ def run(args):
             for thread in threads:
                 thread.stop()
             print 'user interrupted, exit'
+            break
+        states = [thread.stoped for thread in threads]
+        if states and all(states):
+            print 'all threads stoped, exit'
             break
     return
 

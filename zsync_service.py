@@ -47,7 +47,7 @@ class NewSend(object):
             self.error('remote path is not dir nor file')
             return
 
-        self.threads = [zsync_thread.SendThread(self.ctx, i, self.send_queue) for i in xrange(self.thread_num)]
+        self.threads = [zsync_thread.SendThread(self.ctx, i, self.send_queue, 10) for i in xrange(self.thread_num)]
         if any([not thread.ready for thread in self.threads]):
             self.error('remote thread init failed')
             return
