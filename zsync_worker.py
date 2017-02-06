@@ -7,57 +7,10 @@ import threading
 import time
 import cPickle
 import zmq
+import zsync_thread
 
 CHUNK_SIZE = 250000
 PIPELINE = 10
-
-class RecvThread(threading.Thread):
-    def __init__(self, ctx, ip, port):
-        threading.Thread.__init__(self)
-        self.ctx = ctx
-        self.ip = ip
-        self.port = port
-        self.ready = False
-        self.stoped = False
-
-        # create pair socket to recv file
-        self.sock = ctx.socket(zmq.PAIR)
-        self.sock.connect('tcp://%s:%s' % (self.ip, self.port))
-        self.sock.linger = 0
-        self.ready = True
-        return
-
-    def run(self):
-        poller = zmq.Poller()
-        poller.register(self.sock, zmq.POLLIN)
-
-        num = 0
-        while True:
-            if self.stoped:
-                break
-
-            socks = dict(poller.poll(1000))
-            if socks.get(self.sock) == zmq.POLLIN:
-                msg = self.sock.recv_multipart(zmq.NOBLOCK)
-                if not msg:
-                    break
-                print msg
-                print 'before send'
-                self.sock.send_multipart(msg, zmq.NOBLOCK)
-                print 'send end'
-                num += 1
-                if num > 10:
-                    self.sock.close()
-                    break
-        return
-
-    def send(self, *msgs):
-        self.sock.send_multipart(msgs)
-        return
-
-    def stop(self):
-        self.stoped = True
-        return
 
 
 def run(args):
@@ -102,7 +55,6 @@ def run(args):
     connect_time = time.time()
 
     threads = []
-    
     while True:
         try:
             socks = dict(poller.poll(1000))
@@ -123,7 +75,7 @@ def run(args):
                     ports = cPickle.loads(msg[1])
                     print 'ports: ', ports
 
-                    threads = [RecvThread(ctx, src.ip, port) for port in ports]
+                    threads = [zsync_thread.RecvThread(ctx, src.ip, port) for port in ports]
                     [thread.start() for thread in threads]
 
             if not connected:

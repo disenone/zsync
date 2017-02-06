@@ -7,67 +7,8 @@ import threading
 import cPickle
 import time
 import zmq
+import zsync_thread
 
-
-class SendThread(threading.Thread):
-    def __init__(self, ctx, thread_id, send_queue):
-        threading.Thread.__init__(self)  
-        self.ctx = ctx
-        self.thread_id = thread_id
-        self.send_queue = send_queue
-        self.stoped = False
-        self.ready = False
-
-        # create pair socket to send file
-        self.sock = ctx.socket(zmq.PAIR)
-        port = self.sock.bind_to_random_port('tcp://*', min_port=10000, max_port=11000, max_tries=1000)
-        if not port:
-            return
-        self.sock.linger = 0
-        self.port = port
-        self.ready = True
-        return
-
-    def run(self):
-        if not self.ready:
-            return
-
-        poller = zmq.Poller()
-        poller.register(self.sock)
-
-        while True:
-            print 'thread %d, ' % self.thread_id,  self.stoped
-            if self.stoped:
-                break
-
-            print 'go in poll'
-            socks = dict(poller.poll(1000))
-            if socks.get(self.sock) & zmq.POLLIN == zmq.POLLIN:
-                msg = self.sock.recv_multipart(zmq.NOBLOCK)
-                print msg
-                if not msg:
-                    raise ValueError('receive empty msg')
-                    break
-            print 'go out poll'
-
-            if socks.get(self.sock) & zmq.POLLOUT == zmq.POLLOUT:
-                print 'before send'
-                self.send('test', 'hello world!')
-                print 'sending msg'
-
-        print 'thread %d exit' % self.thread_id
-
-        return
-
-    def stop(self):
-        self.stoped = True
-        #self.sock.close()
-        print 'stoped'
-        return
-
-    def send(self, *msgs):
-        self.sock.send_multipart(msgs, zmq.NOBLOCK)
-        return
 
 class NewSend(object):
     def __init__(self, id1, id2, ctx, router, path, thread_num):
@@ -106,7 +47,7 @@ class NewSend(object):
             self.error('remote path is not dir nor file')
             return
 
-        self.threads = [SendThread(self.ctx, i, self.send_queue) for i in xrange(self.thread_num)]
+        self.threads = [zsync_thread.SendThread(self.ctx, i, self.send_queue) for i in xrange(self.thread_num)]
         if any([not thread.ready for thread in self.threads]):
             self.error('remote thread init failed')
             return
@@ -116,8 +57,6 @@ class NewSend(object):
         self.send('port', cPickle.dumps(thread_ports))
 
         [thread.start() for thread in self.threads]
-
-        #self.send('test', 'there')
 
         while True:
             try:
