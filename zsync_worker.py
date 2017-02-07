@@ -75,7 +75,7 @@ def run(args):
                     ports = cPickle.loads(msg[1])
                     print 'ports: ', ports
 
-                    threads = [zsync_thread.RecvThread(ctx, src.ip, port, 10) for port in ports]
+                    threads = [zsync_thread.RecvThread(ctx, src.ip, port) for port in ports]
                     [thread.start() for thread in threads]
 
             if not connected:

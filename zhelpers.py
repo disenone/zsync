@@ -56,3 +56,33 @@ def zpipe(ctx):
     a.bind(iface)
     b.connect(iface)
     return a,b
+
+def zpipes(ctx, thread_num, port):
+    """build inproc pipe for talking to threads by router and dealer
+    """
+    a = ctx.socket(zmq.ROUTER)
+    b = [ctx.socket(zmq.DEALER) for i in xrange(thread_num)]
+    a.linger = 0
+    socket_set_hwm(a, thread_num * 3)
+
+    iface = "inproc://%s" % port
+    a.bind(iface)
+
+    for s in b:
+        s.linger = 0
+        socket_set_hwm(s, 1)
+        s.connect(iface)
+
+    return a, b
+
+def poll(poller, ms):
+    polls = dict(poller.poll(ms))
+    ret = {}
+    for sock, mask in polls.iteritems():
+        oneret = []
+        if mask & zmq.POLLIN:
+            oneret.append(zmq.POLLIN)
+        if mask & zmq.POLLOUT:
+            oneret.append(zmq.POLLOUT)
+        ret[sock] = oneret
+    return ret
