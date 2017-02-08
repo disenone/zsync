@@ -44,6 +44,7 @@ class Transceiver(object):
         if not self.send_queue:
             try:
                 sock.send_multipart(msg, zmq.NOBLOCK)
+                print 'send: ', msg
                 return True
             except:
                 self.send_queue.pushQueue(sock, msg)
@@ -130,7 +131,7 @@ class ZsyncThread(threading.Thread, Transceiver):
         if zmq.POLLIN not in ret.get(self.sock, ()) and time.time() - self.lastRecvTime[self.sock] > self.timeout:
             self.stop()
             self.log('recv timeout, exit')
-            
+
         return
 
     def log(self, msg):
