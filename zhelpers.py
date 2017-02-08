@@ -35,9 +35,10 @@ def dump(msg_or_socket):
             print(r"0x%s" % (binascii.hexlify(part).decode('ascii')))
 
 
-def set_id(zsocket):
+def set_id(zsocket, identity=None):
     """Set simple random printable identity on socket"""
-    identity = u"%04x-%04x" % (randint(0, 0x10000), randint(0, 0x10000))
+    if identity is None:
+        identity = u"%04x-%04x" % (randint(0, 0x10000), randint(0, 0x10000))
     zsocket.setsockopt_string(zmq.IDENTITY, identity)
 
 
@@ -57,7 +58,7 @@ def zpipe(ctx):
     b.connect(iface)
     return a,b
 
-def zpipes(ctx, thread_num, port):
+def zpipes(ctx, thread_num, addr):
     """build inproc pipe for talking to threads by router and dealer
     """
     a = ctx.socket(zmq.ROUTER)
@@ -65,7 +66,7 @@ def zpipes(ctx, thread_num, port):
     a.linger = 0
     socket_set_hwm(a, thread_num * 3)
 
-    iface = "inproc://%s" % port
+    iface = "inproc://%s" % addr
     a.bind(iface)
 
     for s in b:
