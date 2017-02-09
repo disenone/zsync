@@ -41,10 +41,11 @@ class Transceiver(object):
         return
 
     def send(self, sock, *msg):
+        if not msg:
+            return
         if not self.send_queue:
             try:
                 sock.send_multipart(msg, zmq.NOBLOCK)
-                print 'send: ', msg
                 return True
             except:
                 self.send_queue.pushQueue(sock, msg)
@@ -59,14 +60,13 @@ class Transceiver(object):
 
     def recv(self, sock):
         msg = sock.recv_multipart(zmq.NOBLOCK)
-        print 'recv: ', msg
         return msg
 
     def poll(self, ms):
         return zhelpers.poll(self.poller, ms)
 
     def dispatch(self, sock, msg):
-        print 'dispatch', sock, msg
+        #print 'dispatch', sock, msg
         cmd = msg[0]
         funcn = 'cmd_' + str(cmd)
 
@@ -86,7 +86,8 @@ class Transceiver(object):
                 while True:
                     try:
                         msg = self.recv(sock)
-                    except:
+                    except Exception, e:
+                        #print self.__class__.__name__, e
                         break
                     self.dispatch(sock, msg)
 
@@ -125,14 +126,14 @@ class ZsyncThread(threading.Thread, Transceiver):
     def recv(self, sock):
         ret = Transceiver.recv(self, sock)
         self.lastRecvTime[sock] = time.time()
+        return ret
 
     def poll(self, ms):
         ret = super(ZsyncThread, self).poll(ms)
         if zmq.POLLIN not in ret.get(self.sock, ()) and time.time() - self.lastRecvTime[self.sock] > self.timeout:
             self.stop()
-            self.log('recv timeout, exit')
-
-        return
+            self.log('thread %s recv timeout, exit' % self.identity)
+        return ret
 
     def log(self, msg):
         self.send(self.inproc, 'log', msg)
@@ -158,7 +159,7 @@ class SendThread(ZsyncThread):
         return
 
     def cmd_init(self):
-        self.send(self.sock, str(self.pipeline), str(self.chunksize))
+        self.send(self.sock, 'init', str(self.pipeline), str(self.chunksize))
         return
 
     def cmd_stop(self):
@@ -199,9 +200,14 @@ class RecvThread(ZsyncThread):
         self.ready = True
         return
 
+    def cmd_init(self, pipeline, chunksize):
+        self.pipeline = int(pipeline)
+        self.chunksize = int(chunksize)
+        return
+
     def run(self):
-        self.send('init')
-        #self.log('thread %s runing' % self.identity)
+        self.send(self.sock, 'init')
+        self.log('thread %s runing' % self.identity)
 
         while not self.stoped:
 
@@ -216,7 +222,7 @@ class ChildThread(object):
     def __init__(self, inproc, identity, thread=None):
         self.inproc = inproc
         self.identity = identity
-        zhelpers.set_id(self.inproc, identity)
+        zhelpers.set_id(self.inproc, unicode(identity))
         self.thread = thread
         return
 
@@ -303,7 +309,7 @@ class WorkerManager(ThreadManager):
 
         addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
         self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.args.thread_num, addr)
-        self.childs = [ChildThread(inproc, unicode(i)) for inproc, i in zip(inproc_childs, range(len(inproc_childs)))]
+        self.childs = [ChildThread(inproc, str(i)) for inproc, i in zip(inproc_childs, range(len(inproc_childs)))]
 
         self.register()
         
@@ -396,6 +402,8 @@ class ServiceManager(ThreadManager):
 
         if sock == self.sock:
             msg = msg[2:] + msg[:2]
+            # identity = tuple(msg[-2:])
+            # if identity != 
 
         return Transceiver.dispatch(self, sock, msg)
 
@@ -415,7 +423,7 @@ class ServiceManager(ThreadManager):
         addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
         self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.thread_num, addr)
 
-        self.childs = [ChildThread(inproc, unicode(i)) for inproc, i in zip(inproc_childs, range(len(inproc_childs)))]
+        self.childs = [ChildThread(inproc, str(i)) for inproc, i in zip(inproc_childs, range(len(inproc_childs)))]
 
         self.register()
         return True
@@ -432,7 +440,6 @@ class ServiceManager(ThreadManager):
         self.send(self.sock, 'port', cPickle.dumps(thread_ports))
         [child.thread.start() for child in self.childs]
 
-        print 'service thread started'
         while not self.stoped:
             try:
                 polls = self.poll(1000)

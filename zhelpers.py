@@ -64,14 +64,12 @@ def zpipes(ctx, thread_num, addr):
     a = ctx.socket(zmq.ROUTER)
     b = [ctx.socket(zmq.DEALER) for i in xrange(thread_num)]
     a.linger = 0
-    socket_set_hwm(a, thread_num * 3)
 
     iface = "inproc://%s" % addr
     a.bind(iface)
 
     for s in b:
         s.linger = 0
-        socket_set_hwm(s, 1)
         s.connect(iface)
 
     return a, b
