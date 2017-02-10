@@ -9,7 +9,7 @@ from multiprocessing import Queue
 
 fileq = None
 mypath = 'sync_files'
-ip = '192.168.11.249'
+ip = 'localhost'
 ports = [13330, 13331, 13332]
 CHUNK_SIZE = 250000
 PIPELINE = 10

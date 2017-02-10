@@ -9,7 +9,10 @@ import zsync_utils
 import os
 import cPickle
 import binascii
+import stat
 
+FILE_TYPE_DIR = 'd'
+FILE_TYPE_FILE = 'f'
 
 class SendQueue(dict):
     def pushQueue(self, sock, msg):
@@ -109,6 +112,7 @@ class ZsyncThread(threading.Thread, Transceiver):
         self.stoped = False
         self.ready = False
         self.lastRecvTime = {}
+        self.file = zsync_utils.CommonFile()
         return
 
     def run(self):
@@ -136,13 +140,15 @@ class ZsyncThread(threading.Thread, Transceiver):
         return ret
 
     def log(self, msg):
-        self.send(self.inproc, 'log', msg)
+        self.send(self.inproc, 'log', 'thread %s: ' % self.identity + msg)
         return
 
 class SendThread(ZsyncThread):
-    def __init__(self, ctx, identity, file_queue, inproc, timeout=10, pipeline=10, chunksize=250000):
+    def __init__(self, ctx, identity, file_queue, inproc, path, timeout=10, pipeline=10, chunksize=250000):
         super(SendThread, self).__init__(ctx, identity, inproc, timeout, pipeline, chunksize)
         self.file_queue = file_queue
+        self.path = path
+        self.cutlen = len(self.path) + 1
 
         # create pair socket to send file
         self.sock = ctx.socket(zmq.PAIR)
@@ -151,7 +157,6 @@ class SendThread(ZsyncThread):
         if not port:
             return
         self.sock.linger = 0
-        zhelpers.socket_set_hwm(self.sock, pipeline * 2)
         self.port = port
         self.register()
 
@@ -166,11 +171,37 @@ class SendThread(ZsyncThread):
         self.stop()
         return
 
+    def cmd_newfile(self):
+        if not self.file_queue:
+            self.send(self.sock, 'over')
+            return
+        file_path = self.file_queue.popleft()
+        if os.path.isdir(file_path):
+            file_type = FILE_TYPE_DIR
+            file_size = '0'
+        else:
+            file_type = FILE_TYPE_FILE
+            file_size = str(os.path.getsize(file_path))
+
+        file_mode = str(os.stat(file_path)[stat.ST_MODE])
+
+        self.send(self.sock, 'newfile', file_path[self.cutlen:], file_type, file_mode, file_size)
+
+        self.file.open(file_path, 'r')
+        return
+
+    def cmd_fetch(self, offset):
+        offset = int(offset)
+        data = self.file.fetch(offset, self.chunksize)
+        self.send(self.sock, 'fetch', str(offset), data)
+        self.log('send file offset %s len %s' % (offset, len(data)))
+        return
+
     def run(self):
         if not self.ready:
             return
 
-        self.log('thread %s runing' % self.identity)
+        self.log('runing')
 
         while True:
             if self.stoped:
@@ -180,16 +211,16 @@ class SendThread(ZsyncThread):
 
             #self.send(self.sock, 'test', 'hello')
 
-        self.log('thread %s exit' % self.identity)
+        self.log('exit')
         time.sleep(1)
         return
 
-
 class RecvThread(ZsyncThread):
-    def __init__(self, ctx, identity, ip, port, inproc, timeout=10):
+    def __init__(self, ctx, identity, ip, port, inproc, path, timeout=10):
         super(RecvThread, self).__init__(ctx, identity, inproc, timeout)
         self.ip = ip
         self.port = port
+        self.path = path
 
         # create pair socket to recv file
         self.sock = ctx.socket(zmq.PAIR)
@@ -200,9 +231,71 @@ class RecvThread(ZsyncThread):
         self.ready = True
         return
 
+    def askfile(self):
+        self.send(self.sock, 'newfile')
+        return
+
+    def cmd_stop(self):
+        self.stop()
+        return
+
     def cmd_init(self, pipeline, chunksize):
         self.pipeline = int(pipeline)
         self.chunksize = int(chunksize)
+        self.credit = self.pipeline
+        self.askfile()
+        return
+
+    def cmd_newfile(self, file_path, file_type, file_mode, file_size):
+        file_mode = int(file_mode)
+        file_size = int(file_size)
+        file_path = os.path.join(self.path, file_path)
+        if file_type == FILE_TYPE_DIR:
+            dirname = file_path
+        else:
+            dirname = os.path.dirname(file_path)
+
+        error = zsync_utils.makedir(dirname, file_mode)
+        if error:
+            self.log('ERROR: ' + error)
+            self.askfile()
+            return
+
+        if file_type == FILE_TYPE_DIR:
+            self.askfile()
+            return
+
+        self.file.open(file_path, 'w', file_size, self.pipeline)
+        self.log('fetching file: %s size %s' % (file_path, file_size))
+        self.sendfetch()
+        return
+
+    def sendfetch(self):
+        while self.file.credit:
+            if self.file.fetch_offset > self.file.total:
+                break
+            self.send(self.sock, 'fetch', 
+                str(self.file.fetch_offset))
+
+            self.file.fetch_offset += self.chunksize
+            self.file.credit -= 1
+
+        return
+
+    def cmd_fetch(self, offset, data):
+        #self.log('recv file offset %s len %s' % (offset, len(data)))
+        self.file.write_chunk(int(offset), data)
+        self.file.credit += 1
+        if self.file.writedone:
+            self.log('finish file %s' % self.path)
+            self.askfile()
+        else:
+            self.sendfetch()
+        return
+
+    def cmd_over(self):
+        self.stop()
+        self.log('file sync over, exit')
         return
 
     def run(self):
@@ -210,7 +303,6 @@ class RecvThread(ZsyncThread):
         self.log('thread %s runing' % self.identity)
 
         while not self.stoped:
-
             polls = self.poll(1000)
             self.deal_poll(polls)
 
@@ -284,8 +376,8 @@ class WorkerManager(ThreadManager):
         return
 
     def parse_args(self):
-        self.src = zsync_utils.CommonFile(self.args.src)
-        self.dst = zsync_utils.CommonFile(self.args.dst)
+        self.src = zsync_utils.CommonPath(self.args.src)
+        self.dst = zsync_utils.CommonPath(self.args.dst)
 
         if not self.src.isValid():
             print 'ERROR: src is invalid'
@@ -337,7 +429,7 @@ class WorkerManager(ThreadManager):
 
         for i, child in enumerate(self.childs):
             port = ports[i]
-            child.thread = RecvThread(self.ctx, child.identity, self.src.ip, port, child.inproc)
+            child.thread = RecvThread(self.ctx, child.identity, self.src.ip, port, child.inproc, self.dst.path)
       
         [child.thread.start() for child in self.childs]
         self.started = True
@@ -433,7 +525,7 @@ class ServiceManager(ThreadManager):
             return
 
         for child in self.childs:
-            child.thread = SendThread(self.ctx, child.identity, self.file_queue, child.inproc)
+            child.thread = SendThread(self.ctx, child.identity, self.file_queue, child.inproc, self.path)
 
         thread_ports = [child.thread.port for child in self.childs]
 

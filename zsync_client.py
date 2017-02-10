@@ -7,6 +7,7 @@ from threading import Thread
 from zhelpers import socket_set_hwm, zpipe
 from zsync_server import CHUNK_SIZE, PIPELINE, ports, ip
 
+dst_path = 'sync_files_dst'
 
 def client_thread(ctx, port):
     dealer = ctx.socket(zmq.DEALER)
@@ -31,7 +32,7 @@ def client_thread(ctx, port):
         else:
             raise
 
-    outf = open(fname, 'w')
+    outf = open(os.path.join(dst_path, fname), 'w')
 
     print 'fetching %s \n' % fname
 
