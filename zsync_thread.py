@@ -187,7 +187,7 @@ class SendThread(ZsyncThread):
 
         self.send(self.sock, 'newfile', file_path[self.cutlen:], file_type, file_mode, file_size)
 
-        self.file.open(file_path, 'r')
+        self.file.open(file_path, 'rb')
         return
 
     def cmd_fetch(self, offset):
@@ -265,7 +265,7 @@ class RecvThread(ZsyncThread):
             self.askfile()
             return
 
-        self.file.open(file_path, 'w', file_size, self.pipeline)
+        self.file.open(file_path, 'wb', file_size, self.pipeline)
         self.log('fetching file: %s size %s' % (file_path, file_size))
         self.sendfetch()
         return
