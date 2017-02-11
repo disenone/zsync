@@ -50,6 +50,10 @@ class CommonFile(object):
         self.writedone = False
         return
 
+    def __del__(self):
+        self.close()
+        return
+
     def close(self):
         if self.file:
             self.file.close()
@@ -73,7 +77,6 @@ class CommonFile(object):
     def write(self, data):
         if self.writedone:
             return
-        print 'write offset %s len %s' % (self.write_offset, len(data))
         self.file.write(data)
         self.write_offset += len(data)
         if self.write_offset == self.total:

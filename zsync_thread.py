@@ -3,16 +3,17 @@
 import threading
 from collections import deque
 import time
-import zmq
-import zhelpers
-import zsync_utils
 import os
 import cPickle
 import binascii
 import stat
+import zmq
+import zhelpers
+import zsync_utils
 
 FILE_TYPE_DIR = 'd'
 FILE_TYPE_FILE = 'f'
+
 
 class SendQueue(dict):
     def pushQueue(self, sock, msg):
@@ -77,7 +78,7 @@ class Transceiver(object):
         if not func:
             print 'ERROR: invalid command "%s"' % cmd
             return
-        
+
         return func(*msg[1:])
 
     def deal_poll(self, polls):
@@ -134,7 +135,8 @@ class ZsyncThread(threading.Thread, Transceiver):
 
     def poll(self, ms):
         ret = super(ZsyncThread, self).poll(ms)
-        if zmq.POLLIN not in ret.get(self.sock, ()) and time.time() - self.lastRecvTime[self.sock] > self.timeout:
+        if zmq.POLLIN not in ret.get(self.sock, ()) and \
+                time.time() - self.lastRecvTime[self.sock] > self.timeout:
             self.stop()
             self.log('thread %s recv timeout, exit' % self.identity)
         return ret
@@ -173,6 +175,7 @@ class SendThread(ZsyncThread):
 
     def cmd_newfile(self):
         if not self.file_queue:
+            self.stop()
             self.send(self.sock, 'over')
             return
         file_path = self.file_queue.popleft()
@@ -194,7 +197,7 @@ class SendThread(ZsyncThread):
         offset = int(offset)
         data = self.file.fetch(offset, self.chunksize)
         self.send(self.sock, 'fetch', str(offset), data)
-        self.log('send file offset %s len %s' % (offset, len(data)))
+        #self.log('send file offset %s len %s' % (offset, len(data)))
         return
 
     def run(self):
@@ -209,10 +212,7 @@ class SendThread(ZsyncThread):
             polls = self.poll(1000)
             self.deal_poll(polls)
 
-            #self.send(self.sock, 'test', 'hello')
-
         self.log('exit')
-        time.sleep(1)
         return
 
 class RecvThread(ZsyncThread):
@@ -242,7 +242,6 @@ class RecvThread(ZsyncThread):
     def cmd_init(self, pipeline, chunksize):
         self.pipeline = int(pipeline)
         self.chunksize = int(chunksize)
-        self.credit = self.pipeline
         self.askfile()
         return
 
@@ -272,9 +271,9 @@ class RecvThread(ZsyncThread):
 
     def sendfetch(self):
         while self.file.credit:
-            if self.file.fetch_offset > self.file.total:
+            if self.file.fetch_offset >= self.file.total:
                 break
-            self.send(self.sock, 'fetch', 
+            self.send(self.sock, 'fetch',
                 str(self.file.fetch_offset))
 
             self.file.fetch_offset += self.chunksize
@@ -307,7 +306,6 @@ class RecvThread(ZsyncThread):
             self.deal_poll(polls)
 
         self.log('thread %s exit' % self.identity)
-        time.sleep(1)
         return
 
 class ChildThread(object):
@@ -401,7 +399,8 @@ class WorkerManager(ThreadManager):
 
         addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
         self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.args.thread_num, addr)
-        self.childs = [ChildThread(inproc, str(i)) for inproc, i in zip(inproc_childs, range(len(inproc_childs)))]
+        self.childs = [ChildThread(inproc, str(i)) for inproc, i in 
+            zip(inproc_childs, range(len(inproc_childs)))]
 
         self.register()
         
@@ -429,7 +428,8 @@ class WorkerManager(ThreadManager):
 
         for i, child in enumerate(self.childs):
             port = ports[i]
-            child.thread = RecvThread(self.ctx, child.identity, self.src.ip, port, child.inproc, self.dst.path)
+            child.thread = RecvThread(self.ctx, child.identity, 
+                self.src.ip, port, child.inproc, self.dst.path)
       
         [child.thread.start() for child in self.childs]
         self.started = True
@@ -515,7 +515,8 @@ class ServiceManager(ThreadManager):
         addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
         self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.thread_num, addr)
 
-        self.childs = [ChildThread(inproc, str(i)) for inproc, i in zip(inproc_childs, range(len(inproc_childs)))]
+        self.childs = [ChildThread(inproc, str(i)) for inproc, i in 
+            zip(inproc_childs, range(len(inproc_childs)))]
 
         self.register()
         return True
@@ -525,7 +526,8 @@ class ServiceManager(ThreadManager):
             return
 
         for child in self.childs:
-            child.thread = SendThread(self.ctx, child.identity, self.file_queue, child.inproc, self.path)
+            child.thread = SendThread(self.ctx, child.identity, 
+                self.file_queue, child.inproc, self.path)
 
         thread_ports = [child.thread.port for child in self.childs]
 

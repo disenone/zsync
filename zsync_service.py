@@ -36,6 +36,7 @@ def run(args):
 
                 task = zsync_thread.ServiceManager(ctx, (id1, id2), router, path, thread_num)
                 task.run()
+                task = None
 
         except KeyboardInterrupt:
             print 'user interrupted, exit'

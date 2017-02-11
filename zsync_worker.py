@@ -5,7 +5,6 @@ import argparse
 import zsync_utils
 import threading
 import time
-import cPickle
 import zmq
 import zsync_thread
 
@@ -24,5 +23,8 @@ if __name__ == '__main__':
 
     # print args
     # parser.print_help()
+    tbegin = time.time()
     worker = zsync_thread.WorkerManager(zmq.Context(), args)
     worker.run()
+    tend = time.time()
+    print 'cost time: %s' % (tend - tbegin)
