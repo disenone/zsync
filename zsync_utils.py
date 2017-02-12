@@ -42,6 +42,8 @@ class CommonFile(object):
     def __init__(self):
         self.path = ''
         self.file = None
+        self.mode = 0
+        self.file_mode = 0
         self.chunk_map = {}
         self.credit = 0
         self.fetch_offset = 0
@@ -58,13 +60,17 @@ class CommonFile(object):
         if self.file:
             self.file.close()
             self.file = None
+            if 'w' in self.mode and self.file_mode:
+                os.chmod(self.path, self.file_mode)
         return
 
-    def open(self, path, mode, total=0, credit=0):
+    def open(self, path, mode, total=0, credit=0, file_mode=0):
         self.close()
         self.__init__()
         self.path = path
+        self.mode = mode
         self.file = open(path, mode)
+        self.file_mode = file_mode
         self.total = total
         self.credit = credit
         return

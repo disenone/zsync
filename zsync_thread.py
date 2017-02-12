@@ -250,11 +250,13 @@ class RecvThread(ZsyncThread):
         file_size = int(file_size)
         file_path = os.path.join(self.path, file_path)
         if file_type == FILE_TYPE_DIR:
-            dirname = file_path
+            dir_name = file_path
+            dir_mode = file_mode
         else:
-            dirname = os.path.dirname(file_path)
+            dir_name = os.path.dirname(file_path)
+            dir_mode = None
 
-        error = zsync_utils.makedir(dirname, file_mode)
+        error = zsync_utils.makedir(dir_name, dir_mode)
         if error:
             self.log('ERROR: ' + error)
             self.askfile()
