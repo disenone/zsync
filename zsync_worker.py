@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    # print args
+    print args
     # parser.print_help()
     tbegin = time.time()
     worker = zsync_thread.WorkerManager(zmq.Context(), args)

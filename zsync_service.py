@@ -29,12 +29,14 @@ def run(args):
                 print msg
 
                 try:
-                    id1, id2, path, thread_num = msg
+                    id1, id2, path, thread_num, timeout, excludes = msg
                     thread_num = int(thread_num)
+                    timeout = int(timeout)
+                    excludes = cPickle.loads(excludes)
                 except:
                     continue
 
-                task = zsync_thread.ServiceManager(ctx, (id1, id2), router, path, thread_num)
+                task = zsync_thread.ServiceManager(ctx, (id1, id2), router, path, thread_num, timeout, excludes)
                 task.run()
                 task = None
 

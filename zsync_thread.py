@@ -41,7 +41,8 @@ class SendQueue(dict):
 class Transceiver(object):
     def __init__(self):
         self.send_queue = SendQueue()
-        self.poller = zmq.Poller()
+        self.in_poller = zmq.Poller()
+        self.all_poller = zmq.Poller()
         return
 
     def send(self, sock, *msg):
@@ -67,7 +68,10 @@ class Transceiver(object):
         return msg
 
     def poll(self, ms):
-        return zhelpers.poll(self.poller, ms)
+        if self.send_queue:
+            return zhelpers.poll(self.all_poller, ms)
+        else:
+            return zhelpers.poll(self.in_poller, ms)
 
     def dispatch(self, sock, msg):
         #print 'dispatch', sock, msg
@@ -123,8 +127,10 @@ class ZsyncThread(threading.Thread, Transceiver):
         self.stoped = True
 
     def register(self):
-        self.poller.register(self.sock)
-        self.poller.register(self.inproc)
+        self.in_poller.register(self.sock, zmq.POLLIN)
+        self.in_poller.register(self.inproc, zmq.POLLIN)
+        self.all_poller.register(self.sock)
+        self.all_poller.register(self.inproc)
         self.lastRecvTime[self.sock] = self.lastRecvTime[self.inproc] = time.time()
         return
 
@@ -334,8 +340,10 @@ class ThreadManager(Transceiver):
         return
 
     def register(self):
-        self.poller.register(self.sock)
-        self.poller.register(self.inproc)
+        self.in_poller.register(self.sock, zmq.POLLIN)
+        self.in_poller.register(self.inproc, zmq.POLLIN)
+        self.all_poller.register(self.sock)
+        self.all_poller.register(self.inproc)
         return
 
     def stop(self):
@@ -387,8 +395,8 @@ class WorkerManager(ThreadManager):
             print 'ERROR: dst is invalid'
             return False
 
-        if self.args.timeout <= 0:
-            print 'ERROR: timeout is invalid, must be > 0'
+        if not 0 < self.args.timeout <= 300:
+            print 'ERROR: timeout is invalid, must be in [1, 300]'
             return False
 
         if self.args.thread_num <= 0:
@@ -431,7 +439,7 @@ class WorkerManager(ThreadManager):
         for i, child in enumerate(self.childs):
             port = ports[i]
             child.thread = RecvThread(self.ctx, child.identity, 
-                self.src.ip, port, child.inproc, self.dst.path)
+                self.src.ip, port, child.inproc, self.dst.path, timeout=self.args.timeout)
       
         [child.thread.start() for child in self.childs]
         self.started = True
@@ -447,7 +455,8 @@ class WorkerManager(ThreadManager):
         if not self.parse_args():
             return
 
-        self.send(self.sock, self.src.path, str(self.args.thread_num))
+        self.send(self.sock, self.src.path, str(self.args.thread_num),
+            str(self.args.timeout), str(cPickle.dumps(self.args.exclude)))
 
         while not self.stoped:
             try:
@@ -465,12 +474,14 @@ class WorkerManager(ThreadManager):
         return
 
 class ServiceManager(ThreadManager):
-    def __init__(self, ctx, identity, router, path, thread_num):
+    def __init__(self, ctx, identity, router, path, thread_num, timeout, excludes):
         super(ServiceManager, self).__init__(ctx)
         self.identity = tuple(identity)
         self.sock = router
         self.path = path
         self.thread_num = thread_num
+        self.timeout = timeout
+        self.excludes = excludes
         self.file_queue = deque()
         return
 
@@ -529,7 +540,7 @@ class ServiceManager(ThreadManager):
 
         for child in self.childs:
             child.thread = SendThread(self.ctx, child.identity, 
-                self.file_queue, child.inproc, self.path)
+                self.file_queue, child.inproc, self.path, timeout=self.timeout)
 
         thread_ports = [child.thread.port for child in self.childs]
 
