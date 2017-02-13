@@ -149,8 +149,7 @@ class SendThread(ZsyncThread):
     def __init__(self, ctx, identity, file_queue, inproc, path, timeout=10, pipeline=10, chunksize=250000):
         super(SendThread, self).__init__(ctx, identity, inproc, timeout, pipeline, chunksize)
         self.file_queue = file_queue
-        self.path = path
-        self.cutlen = len(self.path) + 1
+        self.src = zsync_utils.CommonPath(path)
 
         # create pair socket to send file
         self.sock = ctx.socket(zmq.PAIR)
@@ -188,7 +187,8 @@ class SendThread(ZsyncThread):
 
         file_mode = str(os.stat(file_path)[stat.ST_MODE])
 
-        self.send(self.sock, 'newfile', file_path[self.cutlen:], file_type, file_mode, file_size)
+        self.send(self.sock, 'newfile', os.path.relpath(file_path, self.src.prefix_path),
+            file_type, file_mode, file_size)
 
         self.file.open(file_path, 'rb')
         return

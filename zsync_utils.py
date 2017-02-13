@@ -17,12 +17,13 @@ def makedir(diretory, mode = None):
             os.chmod(diretory, mode)
     return None
 
-
 ip_pattern = re.compile(r'^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[0-9]{1,2})(\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[0-9]{1,2})){3}:')
 
 class CommonPath(object):
     def __init__(self, path):
-        self.path = copy.deepcopy(path)
+        self.path = copy.deepcopy(os.path.normpath(path))
+        self.last_path = os.path.basename(self.path)
+        self.prefix_path = self.path[:self.path.find(self.last_path)]
         self.ip = ''
         match = ip_pattern.match(self.path)
         if match:
