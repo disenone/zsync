@@ -74,7 +74,6 @@ class Transceiver(object):
             return zhelpers.poll(self.in_poller, ms)
 
     def dispatch(self, sock, msg):
-        #print 'dispatch', sock, msg
         cmd = msg[0]
         funcn = 'cmd_' + str(cmd)
 
@@ -478,15 +477,25 @@ class ServiceManager(ThreadManager):
         super(ServiceManager, self).__init__(ctx)
         self.identity = tuple(identity)
         self.sock = router
-        self.path = path
+        self.path = zsync_utils.CommonPath(path)
         self.thread_num = thread_num
         self.timeout = timeout
-        self.excludes = excludes
+        self.excludes = None
+        if excludes:
+            self.excludes = zsync_utils.CommonExclude(excludes)
         self.file_queue = deque()
         return
 
     @staticmethod
     def put_queue(self, dpath, fnames):
+        if self.excludes:
+            deln = set()
+            for fname in fnames:
+                if self.excludes.isExclude(os.path.relpath(dpath, self.path.prefix_path), fname):
+                    deln.add(fname)
+ 
+            fnames[:] = set(fnames) - deln
+
         self.file_queue.extend([os.path.join(dpath, fname) 
             for fname in fnames])
         return
@@ -513,14 +522,14 @@ class ServiceManager(ThreadManager):
         return Transceiver.dispatch(self, sock, msg)
 
     def parse_path(self):
-        if not os.path.exists(self.path):
+        if not os.path.exists(self.path.path):
             self.send(self.sock, 'error', 'remote path not exist')
             return False
 
-        if os.path.isdir(self.path):
-            os.path.walk(self.path, self.put_queue, self)
-        elif os.path.isfile(self.path):
-            self.file_queue.append(self.path)
+        if os.path.isdir(self.path.path):
+            os.path.walk(self.path.path, self.put_queue, self)
+        elif os.path.isfile(self.path.path):
+            self.file_queue.append(self.path.path)
         else:
             self.send(self.sock, 'error', 'remote path is not dir nor file')
             return False
@@ -540,7 +549,7 @@ class ServiceManager(ThreadManager):
 
         for child in self.childs:
             child.thread = SendThread(self.ctx, child.identity, 
-                self.file_queue, child.inproc, self.path, timeout=self.timeout)
+                self.file_queue, child.inproc, self.path.path, timeout=self.timeout)
 
         thread_ports = [child.thread.port for child in self.childs]
 

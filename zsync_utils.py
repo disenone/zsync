@@ -107,3 +107,26 @@ class CommonFile(object):
                 else:
                     break
         return
+
+
+class CommonExclude(object):
+    def __init__(self, excludes):
+        self.excludes = None
+        if excludes:
+            self.excludes = [re.compile(os.path.normpath(exclude)) for exclude in excludes]
+        return
+
+    # find match exclude
+    # if fname is not none, will match fname and join(path, fname)
+    # else match path
+    def isExclude(self, path, fname=None):
+        if not self.excludes:
+            return False
+
+        if fname:
+            real_path = os.path.join(path, fname)
+            for exclude in self.excludes:
+                if exclude.match(fname):
+                    return True
+
+        return False
