@@ -17,9 +17,11 @@ def run(args):
         sock = zhelpers.nonblocking_socket(ctx, zmq.ROUTER)
         addr = 'tcp://*:%s' % args.port
         sock.bind(addr)
-
         poller = zmq.Poller()
         poller.register(sock, zmq.POLLIN)
+
+        print 'zsync daemon mode started.'
+
         while True:
             polls = zhelpers.poll(poller, 1000)
             if not polls:
