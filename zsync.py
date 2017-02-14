@@ -14,6 +14,25 @@ def run(args):
     ctx = zmq.Context()
 
     if args.daemon:
+        sock = zhelpers.nonblocking_socket(ctx, zmq.ROUTER)
+        addr = 'tcp://*:%s' % args.port
+        sock.bind(addr)
+
+        poller = zmq.Poller()
+        poller.register(sock, zmq.POLLIN)
+        while True:
+            polls = zhelpers.poll(poller, 1000)
+            if not polls:
+                continue
+
+            if zmq.POLLIN not in polls.get(sock, []):
+                continue
+
+            msg = sock.recv_multipart(zmq.NOBLOCK)
+
+            print msg
+            sock.send_multipart(msg, zmq.NOBLOCK)
+
         return
 
     # local server

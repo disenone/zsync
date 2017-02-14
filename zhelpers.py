@@ -94,7 +94,7 @@ def nonblocking_socket(ctx, stype):
 def recv_multipart_timeout(sock, timeout):
     poller = zmq.Poller()
     poller.register(sock, zmq.POLLIN)
-    polls = dict(poll(poller, timeout))
+    polls = poll(poller, timeout)
     if polls.get(sock):
         return sock.recv_multipart(zmq.NOBLOCK)
     return None
