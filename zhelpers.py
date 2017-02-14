@@ -85,3 +85,22 @@ def poll(poller, ms):
             oneret.append(zmq.POLLOUT)
         ret[sock] = oneret
     return ret
+
+def nonblocking_socket(ctx, stype):
+    sock = ctx.socket(stype)
+    sock.linger = 0
+    return sock
+
+def recv_multipart_timeout(sock, timeout):
+    poller = zmq.Poller()
+    poller.register(sock, zmq.POLLIN)
+    polls = dict(poll(poller, timeout))
+    if polls.get(sock):
+        return sock.recv_multipart(zmq.NOBLOCK)
+    return None
+
+def bind_to_random_port(sock, addr='tcp://*', min_port=49152, max_port=65536, max_tries=1000):
+    try:
+        return sock.bind_to_random_port(addr, min_port, max_port, max_tries)
+    except zmq.ZMQBindError:
+        return 0

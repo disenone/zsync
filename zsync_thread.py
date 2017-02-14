@@ -517,8 +517,6 @@ class ServiceManager(ThreadManager):
 
         if sock == self.sock:
             msg = msg[2:] + msg[:2]
-            # identity = tuple(msg[-2:])
-            # if identity != 
 
         return Transceiver.dispatch(self, sock, msg)
 

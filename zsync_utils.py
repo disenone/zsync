@@ -17,20 +17,24 @@ def makedir(diretory, mode = None):
             os.chmod(diretory, mode)
     return None
 
-ip_pattern = re.compile(r'^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[0-9]{1,2})(\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[0-9]{1,2})){3}:')
+ip_pattern = re.compile(r'^((2[0-4]\d|25[0-5]|[01]?\d\d?)\.){3}(2[0-4]\d|25[0-5]|[01]?\d\d?):|^localhost:')
 
 class CommonPath(object):
     def __init__(self, path):
         self.path = copy.deepcopy(os.path.normpath(path))
-        self.last_path = os.path.basename(self.path)
-        self.prefix_path = self.path[:self.path.find(self.last_path)]
         self.ip = ''
         match = ip_pattern.match(self.path)
         if match:
-            self.path = self.path[len(self.ip):]
             self.ip = match.group()[:-1]
+            self.path = self.path[len(self.ip):]
         else:
-            self.ip = 'localhost'
+            self.ip = '127.0.0.1'
+
+        if self.ip == 'localhost':
+            self.ip = '127.0.0.1'
+
+        self.last_path = os.path.basename(self.path)
+        self.prefix_path = self.path[:self.path.find(self.last_path)]
         return
 
     def isValid(self):
@@ -38,6 +42,9 @@ class CommonPath(object):
 
     def full(self):
         return self.ip + ':' + self.path
+
+    def isLocal(self):
+        return self.ip == '127.0.0.1'
 
 class CommonFile(object):
     def __init__(self):
