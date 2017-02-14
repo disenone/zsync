@@ -113,7 +113,7 @@ class CommonExclude(object):
     def __init__(self, excludes):
         self.excludes = None
         if excludes:
-            self.excludes = [re.compile(os.path.normpath(exclude)) for exclude in excludes]
+            self.excludes = [re.compile(exclude) for exclude in excludes]
         return
 
     # find match exclude
@@ -127,6 +127,13 @@ class CommonExclude(object):
             real_path = os.path.join(path, fname)
             for exclude in self.excludes:
                 if exclude.match(fname):
+                    return True
+
+                if exclude.match(real_path):
+                    return True
+        else:
+            for exclude in self.excludes:
+                if exclude.match(path):
                     return True
 
         return False

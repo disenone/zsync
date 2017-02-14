@@ -195,7 +195,8 @@ class SendThread(ZsyncThread):
         self.send(self.sock, 'newfile', os.path.relpath(file_path, self.src.prefix_path),
             file_type, file_mode, file_size)
 
-        self.file.open(file_path, 'rb')
+        if file_type == FILE_TYPE_FILE:
+            self.file.open(file_path, 'rb')
         return
 
     def cmd_fetch(self, offset):
@@ -537,7 +538,7 @@ class ServiceManager(ThreadManager):
         addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
         self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.thread_num, addr)
 
-        self.childs = [ChildThread(inproc, str(i)) for inproc, i in 
+        self.childs = [ChildThread(inproc, str(i)) for inproc, i in \
             zip(inproc_childs, range(len(inproc_childs)))]
 
         self.register()
