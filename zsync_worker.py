@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import sys
 import argparse
-import zsync_utils
-import threading
 import time
 import zmq
 import zsync_thread

@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import os
-from collections import deque
-import threading
 import cPickle
-import time
 import zmq
 import zsync_thread
 
