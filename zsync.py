@@ -33,9 +33,24 @@ def run(args):
             msg = sock.recv_multipart(zmq.NOBLOCK)
 
             print msg
-            sock.send_multipart(msg, zmq.NOBLOCK)
+
+            if msg[1] == 'newclient':
+                sock.send_multipart(msg, zmq.NOBLOCK)
+
+                sub_args = ['python', 'zsync.py', '--remote', '--port', str(args.port)]
+                print 'creating subprocess %s' % sub_args
+                sub = subprocess.Popen(sub_args)
+            elif msg[1] == 'newserver':
+                pass
 
         return
+
+    # remote server
+    elif args.remote:
+        sock = zhelpers.nonblocking_socket(ctx, zmq.DEALER)
+        psock = zhelpers.nonblocking_socket(ctx, zmq.PAIR)
+
+        port = zhelpers.bind_to_random_port(sock)
 
     # local server
     elif args.local:
@@ -48,11 +63,6 @@ def run(args):
         sock.connect(addr)
         sock.send_multipart(['hello', 'world'], zmq.NOBLOCK)
         time.sleep(1)
-
-    # remote server
-    elif args.remote:
-        sock = ctx.socket(zmq.PAIR)
-        port = zhelpers.bind_to_random_port(sock)
 
     # client
     else:
@@ -86,7 +96,13 @@ def run(args):
                 print msg
 
         else:
+            if not src.isLocal():
+                remote_addr = 'tcp://%s:%s' % (src.ip, args.port)
+            else:
+                remote_addr = 'tcp://%s:%s' % (dst.ip, args.port)
+
             sock = zhelpers.nonblocking_socket(ctx, zmq.DEALER)
+            sock.connect(remote_addr)
             sock.send_multipart(['newclient'], zmq.NOBLOCK)
 
             msg = zhelpers.recv_multipart_timeout(sock, 10000)
@@ -102,7 +118,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--daemon', help='daemon server', action='store_true')
     parser.add_argument('--local', help='local server', action='store_true')
-    parser.add_argument('--remote', help='remote server', action='store_true')
+    parser.add_argument('--remote', type=str, help='remote server', default='')
     parser.add_argument('--sender', help='remote', action='store_true')
     parser.add_argument('src', type=str, help='src', default='', nargs='?')
     parser.add_argument('dst', type=str, help='dst', default='', nargs='?')
