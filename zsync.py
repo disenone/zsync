@@ -8,9 +8,20 @@ import zsync_thread
 import zsync_utils
 import zhelpers
 import subprocess
+from collections import deque
+import logging
 
 
 def run(args):
+    logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d,%H:%M:%S')
+
+    logging.debug('debug')
+    logging.info('info')
+    logging.warning('warning')
+    logging.error('error')
+    logging.critical('critical')
+
     ctx = zmq.Context()
 
     if args.daemon:
@@ -22,6 +33,7 @@ def run(args):
 
         print 'zsync daemon mode started.'
 
+        clients = deque()
         while True:
             polls = zhelpers.poll(poller, 1000)
             if not polls:
@@ -35,13 +47,17 @@ def run(args):
             print msg
 
             if msg[1] == 'newclient':
-                sock.send_multipart(msg, zmq.NOBLOCK)
-
+                identity = msg[0]
+                clients.append(identity)
                 sub_args = ['python', 'zsync.py', '--remote', '--port', str(args.port)]
                 print 'creating subprocess %s' % sub_args
                 sub = subprocess.Popen(sub_args)
             elif msg[1] == 'newserver':
-                pass
+                if not clients:
+                    continue
+                port = msg[2]
+                identity = clients.popleft()
+                sock.send_multipart([identity, 'port', port], zmq.NOBLOCK)
 
         return
 
@@ -50,7 +66,17 @@ def run(args):
         sock = zhelpers.nonblocking_socket(ctx, zmq.DEALER)
         psock = zhelpers.nonblocking_socket(ctx, zmq.PAIR)
 
-        port = zhelpers.bind_to_random_port(sock)
+        port = zhelpers.bind_to_random_port(psock)
+
+        sock.connect('tcp://localhost:%s' % args.port)
+        sock.send_multipart(['newserver', str(port)], zmq.NOBLOCK)
+
+        print 'waiting client', str(port)
+        msg = zhelpers.recv_multipart_timeout(psock, 10000)
+        if not msg:
+            print 'connect timeout, exit'
+        else:
+            print msg
 
     # local server
     elif args.local:
@@ -96,10 +122,13 @@ def run(args):
                 print msg
 
         else:
+
             if not src.isLocal():
-                remote_addr = 'tcp://%s:%s' % (src.ip, args.port)
+                remote_ip = src.ip
             else:
-                remote_addr = 'tcp://%s:%s' % (dst.ip, args.port)
+                remote_ip = dst.ip
+
+            remote_addr = 'tcp://%s:%s' % (remote_ip, args.port)
 
             sock = zhelpers.nonblocking_socket(ctx, zmq.DEALER)
             sock.connect(remote_addr)
@@ -111,6 +140,13 @@ def run(args):
                 return
             else:
                 print msg
+                sock.close()
+                sock = zhelpers.nonblocking_socket(ctx, zmq.PAIR)
+                remote_addr = 'tcp://%s:%s' % (remote_ip, msg[1])
+                print remote_addr
+                sock.connect(remote_addr)
+                sock.send_multipart(['hello', 'world'], zmq.NOBLOCK)
+                time.sleep(5)
 
     return
 
@@ -118,7 +154,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--daemon', help='daemon server', action='store_true')
     parser.add_argument('--local', help='local server', action='store_true')
-    parser.add_argument('--remote', type=str, help='remote server', default='')
+    parser.add_argument('--remote', help='remote server', action='store_true')
     parser.add_argument('--sender', help='remote', action='store_true')
     parser.add_argument('src', type=str, help='src', default='', nargs='?')
     parser.add_argument('dst', type=str, help='dst', default='', nargs='?')

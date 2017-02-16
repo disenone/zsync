@@ -10,6 +10,9 @@ from random import randint
 
 import zmq
 
+IDENTITY_PREFIX = 'id\x00'
+
+
 def socket_set_hwm(socket, hwm=-1):
     """libzmq 2/3/4 compatible sethwm"""
     try:
@@ -34,13 +37,13 @@ def dump(msg_or_socket):
         except UnicodeDecodeError:
             print(r"0x%s" % (binascii.hexlify(part).decode('ascii')))
 
-
 def set_id(zsocket, identity=None):
     """Set simple random printable identity on socket"""
     if identity is None:
-        identity = u"%04x-%04x" % (randint(0, 0x10000), randint(0, 0x10000))
+        identity = u'%s-%04x-%04x' % (IDENTITY_PREFIX, randint(0, 0x10000), randint(0, 0x10000))
+    else:
+        identity = u'%s-%s' %  (IDENTITY_PREFIX, identity)
     zsocket.setsockopt_string(zmq.IDENTITY, identity)
-
 
 def zpipe(ctx):
     """build inproc pipe for talking to threads
@@ -104,3 +107,16 @@ def bind_to_random_port(sock, addr='tcp://*', min_port=49152, max_port=65536, ma
         return sock.bind_to_random_port(addr, min_port, max_port, max_tries)
     except zmq.ZMQBindError:
         return 0
+
+def is_identity(string):
+    return string[0] == '\x00' or string.startswith(IDENTITY_PREFIX)
+
+def split_identity(msg):
+    id_pos = 0
+    for pos, data in enumerate(msg):
+        if not is_identity(data):
+            break
+        else:
+            id_pos = pos + 1
+
+    return msg[:id_pos], msg[id_pos:]

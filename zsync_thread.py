@@ -10,97 +10,11 @@ import stat
 import zmq
 import zhelpers
 import zsync_utils
+from zsync_network import Transceiver
 
 FILE_TYPE_DIR = 'd'
 FILE_TYPE_FILE = 'f'
 
-
-class SendQueue(dict):
-    def pushQueue(self, sock, msg):
-        if sock not in self:
-            self[sock] = deque()
-
-        self[sock].append(msg)
-        return
-
-    def send(self, sock):
-        if not self.get(sock):
-            return
-
-        queue = self[sock]
-        msg = queue[0]
-        try:
-            sock.send_multipart(msg, zmq.NOBLOCK)
-        except:
-            return
-
-        queue.popleft()
-        return
-
-
-class Transceiver(object):
-    def __init__(self):
-        self.send_queue = SendQueue()
-        self.in_poller = zmq.Poller()
-        self.all_poller = zmq.Poller()
-        return
-
-    def send(self, sock, *msg):
-        if not msg:
-            return
-        if not self.send_queue:
-            try:
-                sock.send_multipart(msg, zmq.NOBLOCK)
-                return True
-            except:
-                self.send_queue.pushQueue(sock, msg)
-        else:
-            self.send_queue.pushQueue(sock, msg)
-
-        return False
-
-    def sendQueue(self, sock):
-        self.send_queue.send(sock)
-        return
-
-    def recv(self, sock):
-        msg = sock.recv_multipart(zmq.NOBLOCK)
-        return msg
-
-    def poll(self, ms):
-        if self.send_queue:
-            return zhelpers.poll(self.all_poller, ms)
-        else:
-            return zhelpers.poll(self.in_poller, ms)
-
-    def dispatch(self, sock, msg):
-        cmd = msg[0]
-        funcn = 'cmd_' + str(cmd)
-
-        func = getattr(self, funcn, None)
-        if not func:
-            print 'ERROR: invalid command "%s"' % cmd
-            return
-
-        return func(*msg[1:])
-
-    def deal_poll(self, polls):
-        if not polls:
-            return
-
-        for sock, state in polls.iteritems():
-            if zmq.POLLIN in state:
-                while True:
-                    try:
-                        msg = self.recv(sock)
-                    except Exception, e:
-                        #print self.__class__.__name__, e
-                        break
-                    self.dispatch(sock, msg)
-
-            if zmq.POLLOUT in state:
-                self.sendQueue(sock)
-        return
 
 class ZsyncThread(threading.Thread, Transceiver):
     def __init__(self, ctx, identity, inproc, timeout, pipeline=0, chunksize=0):
