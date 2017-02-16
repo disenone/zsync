@@ -117,7 +117,9 @@ class Transceiver(object):
         except Exception as e:
             logging.error('invalid function args: %s' % msg)
 
-        return func(*args)
+        proxy = Proxy(self, sock, identity)
+
+        return func(proxy, *args)
 
     def deal_poll(self, polls):
         if not polls:

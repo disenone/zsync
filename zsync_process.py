@@ -6,6 +6,7 @@ import zsync_thread
 import zhelpers
 from collections import deque
 import subprocess
+import config
 
 
 class ZsyncDaemon(zsync_thread.Transceiver):
@@ -15,7 +16,7 @@ class ZsyncDaemon(zsync_thread.Transceiver):
         self.port = port
         self.sock = None
         self.waiting_clients = deque()
-        self.servers = []
+        self.services = []
         return
 
     def prepare(self):
@@ -40,17 +41,24 @@ class ZsyncDaemon(zsync_thread.Transceiver):
             self.deal_poll(polls)
         return
 
-    def cmd_newclient(self, identity):
-        self.waiting_clients.append(identity)
+    def on_new_client(self, client):
+        if len(self.services) > config.DAEMON_MAX_SUBPROCESS:
+            client.new_client_failed()
+            return
+
+        self.waiting_clients.append(client.identity)
         sub_args = ['python', 'zsync.py', '--remote', '--port', str(self.port)]
         logging.debug('creating subprocess %s' % sub_args)
         sub = subprocess.Popen(sub_args)
+        self.services.append(sub)
         return
 
-    def cmd_exitclient(self, identity):
-        if identity in self.waiting_clients:
-            self.waiting_clients.remove(identity)
+    def on_client_exit(self, client, msg):
+        if client.identity in self.waiting_clients:
+            self.waiting_clients.remove(client.identity)
+            logging.warning('client %s exit: %s' % (client.identity, msg))
         return
 
-    def cmd_newserver(self, identity, port):
+    def on_new_service(self, service, port):
         return
+
