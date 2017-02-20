@@ -252,5 +252,7 @@ class ZsyncClient(zsync_network.Transceiver):
 
     def on_local_service(self, service):
         logging.debug('recv local service')
-        return
+        self.service = service
+
         
+        return

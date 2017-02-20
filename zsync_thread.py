@@ -10,14 +10,12 @@ import stat
 import zmq
 import zhelpers
 import zsync_utils
-from zsync_network import Transceiver
-
-FILE_TYPE_DIR = 'd'
-FILE_TYPE_FILE = 'f'
+from zsync_network import Transceiver, Proxy
+import config
 
 
 class ZsyncThread(threading.Thread, Transceiver):
-    def __init__(self, ctx, identity, inproc, timeout, pipeline=0, chunksize=0):
+    def __init__(self, ctx, identity, remote_sock, inproc_sock, timeout, pipeline=0, chunksize=0):
         threading.Thread.__init__(self)
         Transceiver.__init__(self)
         self.ctx = ctx
@@ -25,12 +23,22 @@ class ZsyncThread(threading.Thread, Transceiver):
         self.timeout = timeout
         self.pipeline = pipeline
         self.chunksize = chunksize
-        self.sock = None
-        self.inproc = inproc
+        self.remote_sock = None
+        self.remote_port= None
+        self.remote = None
+        self.inproc_sock = inproc_sock
+        self.inproc = Proxy(self, inproc_sock)
         self.stoped = False
         self.ready = False
-        self.lastRecvTime = {}
         self.file = zsync_utils.CommonFile()
+
+        self.register()
+        self.add_timeout(self.remote_sock, self.timeout)
+        return
+
+    def register(self):
+        Transceiver.register(self, self.remote_sock)
+        Transceiver.register(self, self.inproc_sock)
         return
 
     def run(self):
@@ -39,47 +47,25 @@ class ZsyncThread(threading.Thread, Transceiver):
     def stop(self):
         self.stoped = True
 
-    def register(self):
-        self.in_poller.register(self.sock, zmq.POLLIN)
-        self.in_poller.register(self.inproc, zmq.POLLIN)
-        self.all_poller.register(self.sock)
-        self.all_poller.register(self.inproc)
-        self.lastRecvTime[self.sock] = self.lastRecvTime[self.inproc] = time.time()
-        return
-
-    def recv(self, sock):
-        ret = Transceiver.recv(self, sock)
-        self.lastRecvTime[sock] = time.time()
-        return ret
-
-    def poll(self, ms):
-        ret = super(ZsyncThread, self).poll(ms)
-        if zmq.POLLIN not in ret.get(self.sock, ()) and \
-                time.time() - self.lastRecvTime[self.sock] > self.timeout:
-            self.stop()
-            self.log('thread %s recv timeout, exit' % self.identity)
-        return ret
-
     def log(self, msg):
-        self.send(self.inproc, 'log', 'thread %s: ' % self.identity + msg)
+        self.parent.on_child_log('thread %s: %s' % (self.identity, msg))
         return
 
 class SendThread(ZsyncThread):
     def __init__(self, ctx, identity, file_queue, inproc, path, timeout=10, pipeline=10, chunksize=250000):
-        super(SendThread, self).__init__(ctx, identity, inproc, timeout, pipeline, chunksize)
+        ZsyncThread.__init__(self, ctx, identity, inproc, timeout, pipeline, chunksize)
         self.file_queue = file_queue
         self.src = zsync_utils.CommonPath(path)
 
         # create pair socket to send file
-        self.sock = ctx.socket(zmq.PAIR)
-        port = self.sock.bind_to_random_port('tcp://*', min_port=10000,
-                                             max_port=11000, max_tries=1000)
+        self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
+        port = zhelpers.bind_to_random_port(self.remote_sock)
         if not port:
             return
-        self.sock.linger = 0
-        self.port = port
-        self.register()
+        self.remote_port = port
+        self.add_timeout(self.remote_sock, self.timeout)
 
+        self.register()
         self.ready = True
         return
 
@@ -98,10 +84,10 @@ class SendThread(ZsyncThread):
             return
         file_path = self.file_queue.popleft()
         if os.path.isdir(file_path):
-            file_type = FILE_TYPE_DIR
+            file_type = config.FILE_TYPE_DIR
             file_size = '0'
         else:
-            file_type = FILE_TYPE_FILE
+            file_type = config.FILE_TYPE_FILE
             file_size = str(os.path.getsize(file_path))
 
         file_mode = str(os.stat(file_path)[stat.ST_MODE])
@@ -109,7 +95,7 @@ class SendThread(ZsyncThread):
         self.send(self.sock, 'newfile', os.path.relpath(file_path, self.src.prefix_path),
             file_type, file_mode, file_size)
 
-        if file_type == FILE_TYPE_FILE:
+        if file_type == config.FILE_TYPE_FILE:
             self.file.open(file_path, 'rb')
         return
 
@@ -124,7 +110,7 @@ class SendThread(ZsyncThread):
         if not self.ready:
             return
 
-        self.log('runing')
+        self.log('begin')
 
         while True:
             if self.stoped:
