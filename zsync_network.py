@@ -5,6 +5,7 @@ import cPickle
 import logging
 from collections import deque
 import zhelpers
+import time
 
 
 class RpcCaller(object):
@@ -16,10 +17,10 @@ class RpcCaller(object):
         return
 
     def __call__(self, *args):
-        args = [cPickle.dumps(args)]
+        args = [self.funcName, cPickle.dumps(args)]
         if self.identity:
             args = self.identity + args
-        self.transceiver.send(self.sock, args)
+        self.transceiver.send(self.sock, *args)
         return
 
 
@@ -33,9 +34,16 @@ class Proxy(object):
     def __getattr__(self, name):
         return RpcCaller(self.transceiver, self.sock, name, self.identity)
 
+    def __cmp__(self, other):
+        return cmp((self.identity, self.sock, self.transceiver),
+            (other.identity, other.sock, other.transceiver))
+
+    def __str__(self):
+        return str(self.identity)
+
 
 class SendQueue(dict):
-    def pushQueue(self, sock, msg):
+    def push_queue(self, sock, msg):
         if sock not in self:
             self[sock] = deque()
 
@@ -56,21 +64,37 @@ class SendQueue(dict):
         queue.popleft()
         return
 
-
 class Transceiver(object):
     def __init__(self):
         self.send_queue = SendQueue()
         self.in_poller = zmq.Poller()
         self.all_poller = zmq.Poller()
-        self.cmd_pos = {}
+        self.timeout_checkers = {}
         return
 
     def register(self, sock, cmd_pos=0):
         self.in_poller.register(sock, zmq.POLLIN)
         self.all_poller.register(sock)
-        if cmd_pos:
-            self.cmd_pos[sock] = cmd_pos
         return
+
+    def add_timeout(self, sock, timeout):
+        self.timeout_checkers[sock] = TimeoutChecker(timeout)
+        return
+
+    def del_timeout(self, sock):
+        self.timeout_checkers.pop(sock, None)
+        return
+
+    def check_timeout(self):
+        if not self.timeout_checkers:
+            return True
+
+        any_timeout = any([checker.timeout() for checker in self.timeout_checkers.itervalues()])
+        if any_timeout:
+            logging.error('connect timeout')
+            return False
+
+        return True
 
     def send(self, sock, *msg):
         if not msg:
@@ -79,19 +103,23 @@ class Transceiver(object):
             try:
                 sock.send_multipart(msg, zmq.NOBLOCK)
                 return True
-            except:
-                self.send_queue.pushQueue(sock, msg)
+            except Exception as e:
+                logging.error('%s' % str(e))
+                self.send_queue.push_queue(sock, msg)
         else:
-            self.send_queue.pushQueue(sock, msg)
+            self.send_queue.push_queue(sock, msg)
+
 
         return False
 
-    def sendQueue(self, sock):
+    def queue_send(self, sock):
         self.send_queue.send(sock)
         return
 
     def recv(self, sock):
         msg = sock.recv_multipart(zmq.NOBLOCK)
+        if sock in self.timeout_checkers:
+            self.timeout_checkers[sock].feed()
         return msg
 
     def poll(self, ms):
@@ -99,27 +127,6 @@ class Transceiver(object):
             return zhelpers.poll(self.all_poller, ms)
         else:
             return zhelpers.poll(self.in_poller, ms)
-
-    def dispatch(self, sock, msg):
-        identity = None
-        if sock.socket_type == zmq.ROUTER:
-            identity, msg = zhelpers.split_identity(msg)
-
-        funcn = msg[0]
-
-        func = getattr(self, funcn, None)
-        if not func:
-            logging.error('invalid function "%s"' % msg)
-            return
-
-        try:
-            args = cPickle.loads(msg[1])
-        except Exception as e:
-            logging.error('invalid function args: %s' % msg)
-
-        proxy = Proxy(self, sock, identity)
-
-        return func(proxy, *args)
 
     def deal_poll(self, polls):
         if not polls:
@@ -135,5 +142,39 @@ class Transceiver(object):
                     self.dispatch(sock, msg)
 
             if zmq.POLLOUT in state:
-                self.sendQueue(sock)
+                self.queue_send(sock)
         return
+
+    def dispatch(self, sock, msg):
+        identity = None
+        if sock.socket_type == zmq.ROUTER:
+            identity, msg = zhelpers.split_identity(msg)
+
+        funcn = msg[0]
+
+        func = getattr(self, funcn, None)
+        if not func:
+            logging.error('not found function "%s"' % msg)
+            return
+
+        try:
+            args = cPickle.loads(msg[1])
+        except Exception as e:
+            logging.error('invalid function args: %s' % msg)
+
+        proxy = Proxy(self, sock, identity)
+
+        return func(proxy, *args)
+
+
+class TimeoutChecker(object):
+    def __init__(self, timeout):
+        self.interval = timeout
+        self.timestamp = time.time()
+        return
+
+    def feed(self):
+        self.timestamp = time.time()
+
+    def timeout(self):
+        return time.time() > self.timestamp + self.interval
