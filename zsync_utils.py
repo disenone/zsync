@@ -46,6 +46,12 @@ class CommonPath(object):
     def isLocal(self):
         return self.ip == '127.0.0.1'
 
+    def visitValid(self):
+        if not os.path.exists(self.path):
+            return False
+
+        return True
+
 class CommonFile(object):
     def __init__(self):
         self.path = ''

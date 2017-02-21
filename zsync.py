@@ -23,15 +23,14 @@ def prepare_args():
     parser.add_argument('--daemon', action='store_true', help='daemon server')
     parser.add_argument('--local', action='store_true', help='local server')
     parser.add_argument('--remote', action='store_true', help='remote server')
-    parser.add_argument('--sender', action='store_true', help='server is sender')
     parser.add_argument('src', type=str, default='', nargs='?', help='src path')
     parser.add_argument('dst', type=str, default='', nargs='?', help='dst path')
     parser.add_argument('-p', '--port', type=str, default='5555', help='if local, client port, else daemon port')
     parser.add_argument('--thread-num', type=int, default=3, help='sync thread num')
-    parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
     parser.add_argument('--timeout', type=int, default=10, help='connect timeout second')
     parser.add_argument('--pipeline', type=int, default=10, help='file fetch pipeline')
     parser.add_argument('--chunksize', type=int, default=250000, help='chunksize for each pipeline')
+    parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
     args = parser.parse_args()
 
     src = zsync_utils.CommonPath(args.src)
@@ -76,7 +75,9 @@ def run(args):
             args.timeout, args.exclude)
 
     elif args.remote:
-        target = zsync_process.ZsyncRemoteService(args.port, args.timeout)
+        target = zsync_process.ZsyncRemoteService(args.src, args.dst, args.port,
+            args.pipeline, args.chunksize, args.thread_num,
+            args.timeout, args.exclude)
 
     else:
         target = zsync_process.ZsyncClient(args.src, args.dst, args.port,

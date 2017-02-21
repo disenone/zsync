@@ -43,9 +43,6 @@ class ZsyncThread(threading.Thread, Transceiver):
         Transceiver.register(self, self.inproc_sock)
         return
 
-    def run(self):
-        raise NotImplementedError
-
     def do_stop(self, inproc):
         logging.debug('do_stop')
         self.stop()
@@ -56,6 +53,14 @@ class ZsyncThread(threading.Thread, Transceiver):
 
     def log(self, msg, level=logging.DEBUG):
         self.inproc.on_child_log('thread %s: %s' % (self.identity, msg), level)
+        return
+
+    def run(self):
+        self.log('%s runing' % self.__class__.__name__)
+        while not self.stoped:
+            polls = self.poll(1000)
+            self.deal_poll(polls)
+
         return
 
 class SendThread(ZsyncThread):
@@ -100,13 +105,6 @@ class SendThread(ZsyncThread):
         #self.log('send file offset %s len %s' % (offset, len(data)))
         return
 
-    def run(self):
-        while True:
-            if self.stoped:
-                break
-            polls = self.poll(5000)
-            self.deal_poll(polls)
-        return
 
 class RecvThread(ZsyncThread):
     def __init__(self, ctx, remote_port, remote_sock, 
@@ -174,10 +172,7 @@ class RecvThread(ZsyncThread):
     def run(self):
         self.remote.query_new_file()
 
-        while not self.stoped:
-            polls = self.poll(5000)
-            self.deal_poll(polls)
-
+        ZsyncThread.run(self)
         return
 
 class FileTransciver(Transceiver):
@@ -213,6 +208,11 @@ class FileTransciver(Transceiver):
         logging.log(level, msg)
         return
 
+    def do_stop(self, remote, msg):
+        logging.critical(msg)
+        self.stop()
+        return
+
     def stop(self):
         if self.stoped:
             return
@@ -227,7 +227,12 @@ class FileTransciver(Transceiver):
             return True
         return False
 
-    def hand_shake(self, remote):
+    def shake_hand(self, remote):
+        self.del_timeout(remote.sock)
+        remote.on_shake_hand()
+        return
+
+    def on_shake_hand(self, remote):
         self.del_timeout(remote.sock)
         return
 
@@ -251,8 +256,8 @@ class FileTransciver(Transceiver):
         return
 
     def prepare_sender(self):
-        if not os.path.exists(self.src.path):
-            logging.error('remote path not exist  %s' % self.src.path)
+        if not self.src.visitValid():
+            logging.error('remote path not exist %s' % self.src.full())
             self.remote.remote_error('remote path not exist')
             return False
 
@@ -265,12 +270,10 @@ class FileTransciver(Transceiver):
             self.remote.remote_error('remote path is not dir nor file')
             return False
 
-        self.create_childs()
         return True
 
     def set_remote_ports(self, service, ports):
-        logging.debug('set_remote_ports %s, %s' % (ports, len(self.childs)))
-
+        # logging.debug('set_remote_ports %s, %s' % (ports, self.sender))
         if len(ports) != self.thread_num:
             logging.critical('recv ports length is not equal to thread num: \
                 thread_num=%s, ports=%s' % (self.thread_num, ports))
@@ -335,12 +338,14 @@ class FileTransciver(Transceiver):
 
         while not self.stoped:
             try:
-                polls = self.poll(5000)
+                polls = self.poll(1000)
                 self.deal_poll(polls)
 
             except KeyboardInterrupt:
                 logging.info('user interrupted, exit')
                 self.stop()
+                if self.remote:
+                    self.remote.do_stop('remote interrupt')
 
             if not self.check_timeout():
                 logging.info('timeout, exit')
@@ -349,5 +354,6 @@ class FileTransciver(Transceiver):
             if self.childs and not self.has_child_alive():
                 logging.info('all thread stop, exit')
                 self.stop()
+
         return
 

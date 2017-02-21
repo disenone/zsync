@@ -75,6 +75,8 @@ class SendQueue(dict):
             return
 
         queue.popleft()
+        if not queue:
+            self.pop(sock, None)
         return
 
 class Transceiver(object):
@@ -118,7 +120,7 @@ class Transceiver(object):
                 # logging.debug('sended: %s' % (msg, ))
                 return True
             except Exception as e:
-                # logging.debug('send error: %s' % (e, ))
+                logging.debug('send error: %s' % (e, ))
                 self.send_queue.push_queue(sock, msg)
         else:
             self.send_queue.push_queue(sock, msg)
@@ -202,6 +204,4 @@ class TimeoutChecker(object):
         return
 
     def timeout(self):
-        if time.time() > self.timestamp + self.interval:
-            logging.error('timeout: %s, %s, %s' % (time.time(), self.timestamp, self.interval))
         return time.time() > self.timestamp + self.interval
