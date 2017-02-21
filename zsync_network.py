@@ -23,11 +23,17 @@ class RpcCaller(object):
         self.transceiver.send(self.sock, *args)
         return
 
-
 class Proxy(object):
     def __init__(self, transceiver, sock, identity=None):
         self.transceiver = transceiver
         self.sock = sock
+
+        if type(identity) is str:
+            identity = [identity]
+        elif identity is not None:
+            if not type(identity) in [tuple, list]:
+                raise ValueError('identity is invalid: %s' % identity)
+            identity = list(identity)
         self.identity = identity
         return
 
@@ -40,6 +46,13 @@ class Proxy(object):
 
     def __str__(self):
         return str(self.identity)
+
+    def call_raw(self, name, *args):
+        args = (zhelpers.RAW_MSG_FLAG, name) + args
+        if self.identity:
+            args = tuple(self.identity) + args
+        self.transceiver.send(self.sock, *args)
+        return
 
 
 class SendQueue(dict):
@@ -72,7 +85,7 @@ class Transceiver(object):
         self.timeout_checkers = {}
         return
 
-    def register(self, sock, cmd_pos=0):
+    def register(self, sock):
         self.in_poller.register(sock, zmq.POLLIN)
         self.all_poller.register(sock)
         return
@@ -102,9 +115,10 @@ class Transceiver(object):
         if not self.send_queue:
             try:
                 sock.send_multipart(msg, zmq.NOBLOCK)
+                # logging.debug('sended: %s' % (msg, ))
                 return True
             except Exception as e:
-                logging.error('%s' % str(e))
+                # logging.debug('send error: %s' % (e, ))
                 self.send_queue.push_queue(sock, msg)
         else:
             self.send_queue.push_queue(sock, msg)
@@ -137,6 +151,7 @@ class Transceiver(object):
                 while True:
                     try:
                         msg = self.recv(sock)
+                        #logging.debug('recved :%s' % msg)
                     except Exception, e:
                         break
                     self.dispatch(sock, msg)
@@ -147,8 +162,13 @@ class Transceiver(object):
 
     def dispatch(self, sock, msg):
         identity = None
+
         if sock.socket_type == zmq.ROUTER:
             identity, msg = zhelpers.split_identity(msg)
+
+        is_raw = msg[0] == zhelpers.RAW_MSG_FLAG
+        if is_raw:
+            msg = msg[1:]
 
         funcn = msg[0]
 
@@ -158,9 +178,13 @@ class Transceiver(object):
             return
 
         try:
-            args = cPickle.loads(msg[1])
+            if is_raw:
+                args = msg[1:]
+            else:
+                args = cPickle.loads(msg[1])
         except Exception as e:
             logging.error('invalid function args: %s' % msg)
+            return
 
         proxy = Proxy(self, sock, identity)
 
@@ -175,6 +199,9 @@ class TimeoutChecker(object):
 
     def feed(self):
         self.timestamp = time.time()
+        return
 
     def timeout(self):
+        if time.time() > self.timestamp + self.interval:
+            logging.error('timeout: %s, %s, %s' % (time.time(), self.timestamp, self.interval))
         return time.time() > self.timestamp + self.interval

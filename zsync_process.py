@@ -2,13 +2,13 @@
 
 import logging
 import zmq
-import zsync_thread
 import zhelpers
 from collections import deque
 import subprocess
 import config
 import zsync_network
 import zsync_utils
+from zsync_thread import FileTransciver
 
 
 class ZsyncDaemon(zsync_network.Transceiver):
@@ -70,111 +70,93 @@ class ZsyncDaemon(zsync_network.Transceiver):
         client.on_new_serivce(port)
         return
 
-class ZsyncRemoteService(zsync_network.Transceiver):
-    def __init__(self, port, timeout):
-        super(ZsyncRemoteService, self).__init__()
-        self.ctx = zmq.Context()
-        self.sock = None                    # 跟客户端的 sock
-        self.port = None
-        self.process_sock = None            # 跟 daemon 的 sock
-        self.process_port = port
-        self.parent = None
-        self.timeout = timeout
+class ZsyncRemoteService(FileTransciver):
+    def __init__(self, src_path, dst_path, daemon_port, pipeline=0, 
+            chunksize=0, thread_num=0, 
+            timeout=10, excludes=None):
+
+        ctx = zmq.Context()
+
+        FileTransciver.__init__(self, ctx, src_path, dst_path, 
+            pipeline, chunksize, thread_num, timeout, excludes)
+
+        self.daemon_sock = None            # 跟 daemon 的 sock
+        self.daemon_port = daemon_port
+        self.daemon = None
         return
 
     def _prepare(self):
-        self.sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
+        if not self.src.isLocal():
+            self.sender = True
 
-        self.port = zhelpers.bind_to_random_port(self.sock)
-        if not self.port:
+        self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
+        self.remote_port = zhelpers.bind_to_random_port(self.remote_sock)
+        if not self.remote_port:
             logging.critical('service failed to bind random port')
             return False
 
-        self.process_sock = zhelpers.nonblocking_socket(self.ctx, zmq.DEALER)
-        self.process_sock.connect('tcp://localhost:%s' % self.process_port)
-        self.parent = zsync_network.Proxy(self, self.process_sock)
+        self.daemon_sock = zhelpers.nonblocking_socket(self.ctx, zmq.DEALER)
+        self.daemon_sock.connect('tcp://localhost:%s' % self.daemon_port)
+        self.daemon = zsync_network.Proxy(self, self.daemon_sock)
 
-        self.register(self.sock)
-        self.register(self.process_sock)
+        self.register(self.remote_sock)
+        self.register(self.daemon_sock)
 
-        return True
-
-    def run(self):
-        if not self._prepare():
-            return
-
-        self.parent.on_new_service(self.port)
-
+        self.daemon.on_new_service(self.remote_port)
         logging.info('zsync remote service started.')
-        while True:
-            polls = self.poll(1000)
-            self.deal_poll(polls)
-        return
+        return True
 
     def on_client_msg(self, client, msg):
         logging.info('client msg: %s' % msg)
         return
 
-class ZsyncLocalService(zsync_network.Transceiver):
-    def __init__(self, port, timeout):
-        super(ZsyncLocalService, self).__init__()
+class ZsyncLocalService(FileTransciver):
+    def __init__(self, src_path, dst_path, client_port, pipeline=0, 
+            chunksize=0, thread_num=0, 
+            timeout=10, excludes=None):
+
+        ctx = zmq.Context()
+
+        FileTransciver.__init__(self, ctx, src_path, dst_path, 
+            pipeline, chunksize, thread_num, timeout, excludes)
+
         self.ctx = zmq.Context()
-        self.sock = None                    # 跟客户端的 sock
-        self.port = port
-        self.client = None
-        self.timeout = timeout
+        self.remote_port = client_port
+        self.sender = True          # local service fix to be sender
         return
 
     def _prepare(self):
-        self.sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
-        self.sock.connect('tcp://localhost:%s' % self.port)
-        self.client = zsync_network.Proxy(self, self.sock)
+        self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
+        self.remote_sock.connect('tcp://localhost:%s' % self.remote_port)
+        self.remote = zsync_network.Proxy(self, self.remote_sock)
 
-        self.register(self.sock)
-        self.add_timeout(self.sock, self.timeout)
+        self.register(self.remote_sock)
+        self.add_timeout(self.remote_sock, self.timeout)
+
+        if not self.prepare_sender():
+            return False
+
+        self.remote.hand_shake()
+        logging.debug('local service started')
         return True
 
-    def run(self):
-        if not self._prepare():
-            return
 
-        logging.debug('local service running')
-
-        self.client.on_local_service()
-
-        while True:
-            polls = self.poll(1000)
-            self.deal_poll(polls)
-
-            if not self.check_timeout():
-                return
-        return
-
-
-class ZsyncClient(zsync_network.Transceiver):
+class ZsyncClient(FileTransciver):
     def __init__(self, src_path, dst_path, daemon_port=5555,
-            thread_num=3, timeout=10, excludes=None):
+            pipeline=0, chunksize=0, thread_num=3,
+            timeout=10, excludes=None):
 
-        super(ZsyncClient, self).__init__()
-        self.ctx = zmq.Context()
+        ctx = zmq.Context()
+
+        FileTransciver.__init__(self, ctx, src_path, dst_path, 
+            pipeline, chunksize, thread_num, timeout, excludes)
+
         self.daemon_sock = None                    # 跟 daemon 的 sock
         self.daemon_port = daemon_port
         self.daemon = None
-        self.service_sock = None
-        self.service_port = None
-        self.service = None
-        self.src = src_path
-        self.dst = dst_path
-        self.thread_num = thread_num
-        self.timeout = timeout
-        self.excludes = excludes
-        self.remote_ip = None
         return
 
     def _prepare(self):
-        self.src = zsync_utils.CommonPath(self.src)
-        self.dst = zsync_utils.CommonPath(self.dst)
-
         if not self.src.isValid():
             logging.error('src path is invalid')
             return False
@@ -189,20 +171,29 @@ class ZsyncClient(zsync_network.Transceiver):
 
         # need local service
         if self.src.isLocal() and self.dst.isLocal():
-            self.service_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
-            self.service_port = zhelpers.bind_to_random_port(self.service_sock)
-            if not self.service_port:
+            self.remote_ip = 'localhost'
+            self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
+            self.remote_port = zhelpers.bind_to_random_port(self.remote_sock)
+            if not self.remote_port:
                 logging.critical('failed to bind random to random port')
                 return False
 
             sub_args = ['python', 'zsync.py', self.src.full(),
-                self.dst.full(), '--local', '--port', str(self.service_port)]
+                self.dst.full(), '--local', '--port', str(self.remote_port),
+                '--pipeline', str(self.pipeline), '--chunksize', str(self.chunksize),
+                '--thread-num', str(self.thread_num)]
+
+            if self.excludes:
+                for exclude in self.excludes.excludes_origin:
+                    sub_args.extend(['--exclude', str(exclude)])
+
             logging.info('creating subprocess %s' % sub_args)
             sub = subprocess.Popen(sub_args)
 
-            self.register(self.service_sock)
-            self.add_timeout(self.service_sock, self.timeout)
-            self.service = zsync_network.Proxy(self, self.service_sock)
+            self.register(self.remote_sock)
+            self.add_timeout(self.remote_sock, self.timeout)
+            self.remote = zsync_network.Proxy(self, self.remote_sock)
+            self.remote.hand_shake()
 
         # need remote service
         else:
@@ -210,6 +201,7 @@ class ZsyncClient(zsync_network.Transceiver):
                 self.remote_ip = self.src.ip
             else:
                 self.remote_ip = self.dst.ip
+                self.sender = True
 
             remote_addr = 'tcp://%s:%s' % (self.remote_ip, self.daemon_port)
 
@@ -219,40 +211,19 @@ class ZsyncClient(zsync_network.Transceiver):
             self.add_timeout(self.daemon_sock, self.timeout)
 
             self.daemon = zsync_network.Proxy(self, self.daemon_sock)
-            self.daemon.on_new_client()
+            self.daemon.on_new_client(self.src.full(), self.dst.full())
 
+        logging.debug('client started')
         return True
 
-    def run(self):
-        if not self._prepare():
-            return
-
-        logging.debug('client running')
-
-        while True:
-            polls = self.poll(1000)
-            self.deal_poll(polls)
-
-            if not self.check_timeout():
-                return
-        return
-
     def on_new_serivce(self, daemon, port):
-        self.service_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
+        self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
         remote_addr = 'tcp://%s:%s' % (self.remote_ip, port)
-        self.service_sock.connect(remote_addr)
+        self.remote_sock.connect(remote_addr)
 
         self.del_timeout(self.daemon_sock)
-        self.register(self.service_sock)
-        self.add_timeout(self.service_sock, self.timeout)
-        self.service = zsync_network.Proxy(self, self.service_sock)   
-
-        self.service.on_client_msg('hello world')
+        self.register(self.remote_sock)
+        self.add_timeout(self.remote_sock, self.timeout)
+        self.remote = zsync_network.Proxy(self, self.remote_sock)   
         return
 
-    def on_local_service(self, service):
-        logging.debug('recv local service')
-        self.service = service
-
-        
-        return

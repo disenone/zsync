@@ -11,6 +11,7 @@ from random import randint
 import zmq
 
 IDENTITY_PREFIX = 'id\x00'
+RAW_MSG_FLAG = '\x00\x00'
 
 
 def socket_set_hwm(socket, hwm=-1):
@@ -44,6 +45,7 @@ def set_id(zsocket, identity=None):
     else:
         identity = u'%s-%s' %  (IDENTITY_PREFIX, identity)
     zsocket.setsockopt_string(zmq.IDENTITY, identity)
+    return str(identity)
 
 def zpipe(ctx):
     """build inproc pipe for talking to threads
@@ -61,18 +63,20 @@ def zpipe(ctx):
     b.connect(iface)
     return a,b
 
-def zpipes(ctx, thread_num, addr):
+def zpipes(ctx, thread_num, addr=None):
     """build inproc pipe for talking to threads by router and dealer
     """
-    a = ctx.socket(zmq.ROUTER)
-    b = [ctx.socket(zmq.DEALER) for i in xrange(thread_num)]
-    a.linger = 0
+    if addr is None:
+        addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
+
+    a = nonblocking_socket(ctx, zmq.ROUTER)
+    b = [nonblocking_socket(ctx, zmq.DEALER) for i in xrange(thread_num)]
 
     iface = "inproc://%s" % addr
     a.bind(iface)
 
-    for s in b:
-        s.linger = 0
+    for i, s in enumerate(b):
+        set_id(s, str(i))
         s.connect(iface)
 
     return a, b
@@ -113,6 +117,7 @@ def is_identity(string):
 
 def split_identity(msg):
     id_pos = 0
+
     for pos, data in enumerate(msg):
         if not is_identity(data):
             break

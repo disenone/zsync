@@ -26,7 +26,7 @@ class CommonPath(object):
         match = ip_pattern.match(self.path)
         if match:
             self.ip = match.group()[:-1]
-            self.path = self.path[len(self.ip):]
+            self.path = self.path[len(self.ip) + 1:]
         else:
             self.ip = '127.0.0.1'
 
@@ -118,7 +118,7 @@ class CommonFile(object):
 
 class CommonExclude(object):
     def __init__(self, excludes):
-        self.excludes = None
+        self.excludes_origin = copy.deepcopy(excludes)
         if excludes:
             self.excludes = [re.compile(exclude) for exclude in excludes]
         return

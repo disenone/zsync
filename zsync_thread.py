@@ -12,24 +12,26 @@ import zhelpers
 import zsync_utils
 from zsync_network import Transceiver, Proxy
 import config
+import logging
 
 
 class ZsyncThread(threading.Thread, Transceiver):
-    def __init__(self, ctx, identity, remote_sock, inproc_sock, timeout, pipeline=0, chunksize=0):
+    def __init__(self, ctx, remote_port, remote_sock, 
+            inproc_sock, timeout, pipeline, chunksize):
+
         threading.Thread.__init__(self)
         Transceiver.__init__(self)
         self.ctx = ctx
-        self.identity = identity
         self.timeout = timeout
         self.pipeline = pipeline
         self.chunksize = chunksize
-        self.remote_sock = None
-        self.remote_port= None
-        self.remote = None
+        self.remote_port = remote_port
+        self.remote_sock = remote_sock
+        self.remote = Proxy(self, remote_sock)
         self.inproc_sock = inproc_sock
+        self.identity = str(self.inproc_sock.getsockopt_string(zmq.IDENTITY))
         self.inproc = Proxy(self, inproc_sock)
         self.stoped = False
-        self.ready = False
         self.file = zsync_utils.CommonFile()
 
         self.register()
@@ -44,118 +46,84 @@ class ZsyncThread(threading.Thread, Transceiver):
     def run(self):
         raise NotImplementedError
 
-    def stop(self):
-        self.stoped = True
-
-    def log(self, msg):
-        self.parent.on_child_log('thread %s: %s' % (self.identity, msg))
-        return
-
-class SendThread(ZsyncThread):
-    def __init__(self, ctx, identity, file_queue, inproc, path, timeout=10, pipeline=10, chunksize=250000):
-        ZsyncThread.__init__(self, ctx, identity, inproc, timeout, pipeline, chunksize)
-        self.file_queue = file_queue
-        self.src = zsync_utils.CommonPath(path)
-
-        # create pair socket to send file
-        self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
-        port = zhelpers.bind_to_random_port(self.remote_sock)
-        if not port:
-            return
-        self.remote_port = port
-        self.add_timeout(self.remote_sock, self.timeout)
-
-        self.register()
-        self.ready = True
-        return
-
-    def cmd_init(self):
-        self.send(self.sock, 'init', str(self.pipeline), str(self.chunksize))
-        return
-
-    def cmd_stop(self):
+    def do_stop(self, inproc):
+        logging.debug('do_stop')
         self.stop()
         return
 
-    def cmd_newfile(self):
+    def stop(self):
+        self.stoped = True
+
+    def log(self, msg, level=logging.DEBUG):
+        self.inproc.on_child_log('thread %s: %s' % (self.identity, msg), level)
+        return
+
+class SendThread(ZsyncThread):
+    def __init__(self, ctx, remote_port, remote_sock, 
+            inproc_sock, timeout, pipeline, chunksize,
+            src_path, file_queue):
+
+        ZsyncThread.__init__(self, ctx, remote_port,
+            remote_sock, inproc_sock, timeout, pipeline, chunksize)
+
+        self.file_queue = file_queue
+        self.src = zsync_utils.CommonPath(src_path)
+        return
+
+    def query_new_file(self, client):
         if not self.file_queue:
             self.stop()
-            self.send(self.sock, 'over')
+            client.send_over()
             return
+
         file_path = self.file_queue.popleft()
         if os.path.isdir(file_path):
             file_type = config.FILE_TYPE_DIR
-            file_size = '0'
+            file_size = 0
         else:
             file_type = config.FILE_TYPE_FILE
-            file_size = str(os.path.getsize(file_path))
+            file_size = os.path.getsize(file_path)
 
-        file_mode = str(os.stat(file_path)[stat.ST_MODE])
+        file_mode = os.stat(file_path)[stat.ST_MODE]
 
-        self.send(self.sock, 'newfile', os.path.relpath(file_path, self.src.prefix_path),
+        client.on_new_file(os.path.relpath(file_path, self.src.prefix_path),
             file_type, file_mode, file_size)
 
         if file_type == config.FILE_TYPE_FILE:
             self.file.open(file_path, 'rb')
         return
 
-    def cmd_fetch(self, offset):
+    def fetch_file(self, client, offset):
         offset = int(offset)
         data = self.file.fetch(offset, self.chunksize)
-        self.send(self.sock, 'fetch', str(offset), data)
+        client.call_raw('on_fetch_file', str(offset), data)
         #self.log('send file offset %s len %s' % (offset, len(data)))
         return
 
     def run(self):
-        if not self.ready:
-            return
-
-        self.log('begin')
-
         while True:
             if self.stoped:
                 break
-            polls = self.poll(1000)
+            polls = self.poll(5000)
             self.deal_poll(polls)
-
-        self.log('exit')
         return
 
 class RecvThread(ZsyncThread):
-    def __init__(self, ctx, identity, ip, port, inproc, path, timeout=10):
-        super(RecvThread, self).__init__(ctx, identity, inproc, timeout)
-        self.ip = ip
-        self.port = port
-        self.path = path
+    def __init__(self, ctx, remote_port, remote_sock, 
+            inproc_sock, timeout, pipeline, chunksize, dst_path):
 
-        # create pair socket to recv file
-        self.sock = ctx.socket(zmq.PAIR)
-        self.sock.connect('tcp://%s:%s' % (self.ip, self.port))
-        self.sock.linger = 0
-        self.register()
+        ZsyncThread.__init__(self, ctx, remote_port,
+            remote_sock, inproc_sock, timeout, pipeline, chunksize)
 
+        self.dst = zsync_utils.CommonPath(dst_path)
         self.ready = True
         return
 
-    def askfile(self):
-        self.send(self.sock, 'newfile')
-        return
-
-    def cmd_stop(self):
-        self.stop()
-        return
-
-    def cmd_init(self, pipeline, chunksize):
-        self.pipeline = int(pipeline)
-        self.chunksize = int(chunksize)
-        self.askfile()
-        return
-
-    def cmd_newfile(self, file_path, file_type, file_mode, file_size):
+    def on_new_file(self, service, file_path, file_type, file_mode, file_size):
         file_mode = int(file_mode)
         file_size = int(file_size)
-        file_path = os.path.join(self.path, file_path)
-        if file_type == FILE_TYPE_DIR:
+        file_path = os.path.join(self.dst.path, file_path)
+        if file_type == config.FILE_TYPE_DIR:
             dir_name = file_path
             dir_mode = file_mode
         else:
@@ -165,226 +133,107 @@ class RecvThread(ZsyncThread):
         error = zsync_utils.makedir(dir_name, dir_mode)
         if error:
             self.log('ERROR: ' + error)
-            self.askfile()
+            self.remote.query_new_file()
             return
 
-        if file_type == FILE_TYPE_DIR:
-            self.askfile()
+        if file_type == config.FILE_TYPE_DIR:
+            self.remote.query_new_file()
             return
 
         self.file.open(file_path, 'wb', file_size, self.pipeline)
         self.log('fetching file: %s size %s' % (file_path, file_size))
-        self.sendfetch()
+        self.sendfetch(service)
         return
 
-    def sendfetch(self):
+    def sendfetch(self, service):
         while self.file.credit:
             if self.file.fetch_offset >= self.file.total:
                 break
-            self.send(self.sock, 'fetch',
-                str(self.file.fetch_offset))
-
+            
+            service.call_raw('fetch_file', str(self.file.fetch_offset))
             self.file.fetch_offset += self.chunksize
             self.file.credit -= 1
 
         return
 
-    def cmd_fetch(self, offset, data):
-        #self.log('recv file offset %s len %s' % (offset, len(data)))
+    def on_fetch_file(self, service, offset, data):
+        # self.log('recv file offset %s len %s' % (offset, len(data)))
         self.file.write_chunk(int(offset), data)
         self.file.credit += 1
         if self.file.writedone:
-            self.log('finish file %s' % self.path)
-            self.askfile()
+            self.log('finish file %s' % self.file.path)
+            service.query_new_file()
         else:
-            self.sendfetch()
+            self.sendfetch(service)
         return
 
-    def cmd_over(self):
+    def send_over(self, service):
         self.stop()
-        self.log('file sync over, exit')
         return
 
     def run(self):
-        self.send(self.sock, 'init')
-        self.log('thread %s runing' % self.identity)
+        self.remote.query_new_file()
 
         while not self.stoped:
-            polls = self.poll(1000)
+            polls = self.poll(5000)
             self.deal_poll(polls)
 
-        self.log('thread %s exit' % self.identity)
         return
 
-class ChildThread(object):
-    def __init__(self, inproc, identity, thread=None):
-        self.inproc = inproc
-        self.identity = identity
-        zhelpers.set_id(self.inproc, unicode(identity))
-        self.thread = thread
-        return
+class FileTransciver(Transceiver):
+    def __init__(self, ctx, src_path, dst_path, 
+            pipeline=0, chunksize=0, thread_num=0, 
+            timeout=10, excludes=None):
 
-
-class ThreadManager(Transceiver):
-    def __init__(self, ctx):
         Transceiver.__init__(self)
         self.ctx = ctx
-        self.sock = None
-        self.inproc = None
+        self.src = zsync_utils.CommonPath(src_path)
+        self.dst = zsync_utils.CommonPath(dst_path)
+        self.remote_sock = None
+        self.remote_ip = None
+        self.remote_port = None
+        self.remote = None
+        self.sender = False
+        self.pipeline = pipeline
+        self.chunksize = chunksize
+        self.thread_num = thread_num
+        self.timeout = timeout
+        self.excludes = None
+        self.inproc_sock = None
         self.childs = []
+        self.child_proxies = []
+        self.file_queue = deque()
         self.stoped = False
+
+        if excludes:
+            self.excludes = zsync_utils.CommonExclude(excludes)
         return
 
-    def cmd_log(self, msg, *identity):
-        print msg
-        return
-
-    def register(self):
-        self.in_poller.register(self.sock, zmq.POLLIN)
-        self.in_poller.register(self.inproc, zmq.POLLIN)
-        self.all_poller.register(self.sock)
-        self.all_poller.register(self.inproc)
+    def on_child_log(self, child, msg, level):
+        logging.log(level, msg)
         return
 
     def stop(self):
         if self.stoped:
             return
-        self.send(self.inproc, 'stop')
-        [child.thread.join() for child in self.childs if child.thread]
+        [child.do_stop() for child in self.child_proxies]
+        [child.join() for child in self.childs]
         self.stoped = True
         return
 
     def has_child_alive(self):
-        state = [child.thread.is_alive() for child in self.childs if child.thread]
+        state = [child.is_alive() for child in self.childs]
         if any(state):
             return True
         return False
 
-    def send(self, sock, *msg):
-        if sock == self.inproc:
-            self.broadcast_child(*msg)
-        else:
-            Transceiver.send(self, sock, *msg)
+    def hand_shake(self, remote):
+        self.del_timeout(remote.sock)
         return
 
-    def broadcast_child(self, *msg):
-        for child in self.childs:
-            self.send_child(child.identity, *msg)
-        return
-
-    def send_child(self, identity, *msg):
-        Transceiver.send(self, self.inproc, identity, *msg)
-        return
-
-class WorkerManager(ThreadManager):
-    def __init__(self, ctx, args):
-        super(WorkerManager, self).__init__(ctx)
-        self.args = args
-        self.started = False
-        return
-
-    def parse_args(self):
-        self.src = zsync_utils.CommonPath(self.args.src)
-        self.dst = zsync_utils.CommonPath(self.args.dst)
-
-        if not self.src.isValid():
-            print 'ERROR: src is invalid'
-            return False
-
-        if not self.dst.isValid():
-            print 'ERROR: dst is invalid'
-            return False
-
-        if not 0 < self.args.timeout <= 300:
-            print 'ERROR: timeout is invalid, must be in [1, 300]'
-            return False
-
-        if self.args.thread_num <= 0:
-            print 'ERROR: thread_num is invalid, must be > 0'
-            return False
-
-        self.sock = self.ctx.socket(zmq.DEALER)
-        self.sock.connect('tcp://%s:%s' % (self.src.ip, self.args.p))
-        self.sock.linger = 0
-
-        addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
-        self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.args.thread_num, addr)
-        self.childs = [ChildThread(inproc, str(i)) for inproc, i in 
-            zip(inproc_childs, range(len(inproc_childs)))]
-
-        self.register()
-        
-        # 10秒的连接时间，如果超过10秒都没有收到一次数据，判断连接不上
-        self.connected = False
-        self.connect_time = time.time()
-        return True
-
-    def dispatch(self, sock, msg):
-        if sock == self.sock and not self.connected:
-            self.connected = True
-
-        if sock == self.inproc:
-            msg = msg[1:] + [msg[0]]
-
-        return Transceiver.dispatch(self, sock, msg)
-
-    def cmd_error(self, msg):
-        print 'ERROR: %s' % msg
+    def remote_error(self, remote, msg):
+        logging.critical(msg)
         self.stop()
-        return
-
-    def cmd_port(self, ports):
-        ports = cPickle.loads(ports)
-
-        for i, child in enumerate(self.childs):
-            port = ports[i]
-            child.thread = RecvThread(self.ctx, child.identity, 
-                self.src.ip, port, child.inproc, self.dst.path, timeout=self.args.timeout)
-      
-        [child.thread.start() for child in self.childs]
-        self.started = True
-        return
-
-    def check_connect(self):
-        if not self.connected and time.time() - self.connect_time > self.args.timeout:
-            print 'connect timeout, exit'
-            self.stop()
-        return
-
-    def run(self):
-        if not self.parse_args():
-            return
-
-        self.send(self.sock, self.src.path, str(self.args.thread_num),
-            str(self.args.timeout), str(cPickle.dumps(self.args.exclude)))
-
-        while not self.stoped:
-            try:
-                polls = self.poll(1000)
-                self.deal_poll(polls)
-                self.check_connect()
-
-            except KeyboardInterrupt:
-                print 'user interrupted, exit'
-                self.stop()
-
-            if self.started and not self.has_child_alive():
-                print 'all thread stop, exit'
-                self.stop()
-        return
-
-class ServiceManager(ThreadManager):
-    def __init__(self, ctx, identity, router, path, thread_num, timeout, excludes):
-        super(ServiceManager, self).__init__(ctx)
-        self.identity = tuple(identity)
-        self.sock = router
-        self.path = zsync_utils.CommonPath(path)
-        self.thread_num = thread_num
-        self.timeout = timeout
-        self.excludes = None
-        if excludes:
-            self.excludes = zsync_utils.CommonExclude(excludes)
-        self.file_queue = deque()
         return
 
     @staticmethod
@@ -401,70 +250,104 @@ class ServiceManager(ThreadManager):
             for fname in fnames])
         return
 
-    def send(self, sock, *msg):
-        if sock == self.inproc:
-            self.broadcast_child(*msg)
-        elif sock == self.sock:
-            msg = self.identity + msg
-            Transceiver.send(self, sock, *msg)
-        else:
-            Transceiver.send(self, sock, *msg)
-        return
-
-    def dispatch(self, sock, msg):
-        if sock == self.inproc:
-            msg = msg[1:] + [msg[0]]
-
-        if sock == self.sock:
-            msg = msg[2:] + msg[:2]
-
-        return Transceiver.dispatch(self, sock, msg)
-
-    def parse_path(self):
-        if not os.path.exists(self.path.path):
-            self.send(self.sock, 'error', 'remote path not exist')
+    def prepare_sender(self):
+        if not os.path.exists(self.src.path):
+            logging.error('remote path not exist  %s' % self.src.path)
+            self.remote.remote_error('remote path not exist')
             return False
 
-        if os.path.isdir(self.path.path):
-            os.path.walk(self.path.path, self.put_queue, self)
-        elif os.path.isfile(self.path.path):
-            self.file_queue.append(self.path.path)
+        if os.path.isdir(self.src.path):
+            os.path.walk(self.src.path, self.put_queue, self)
+        elif os.path.isfile(self.src.path):
+            self.file_queue.append(self.src.path)
         else:
-            self.send(self.sock, 'error', 'remote path is not dir nor file')
+            logging.error('remote path is not dir nor file')
+            self.remote.remote_error('remote path is not dir nor file')
             return False
 
-        addr = str(os.getpid()) + '-' + binascii.hexlify(os.urandom(8))
-        self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.thread_num, addr)
-
-        self.childs = [ChildThread(inproc, str(i)) for inproc, i in \
-            zip(inproc_childs, range(len(inproc_childs)))]
-
-        self.register()
+        self.create_childs()
         return True
 
-    def run(self):
-        if not self.parse_path():
+    def set_remote_ports(self, service, ports):
+        logging.debug('set_remote_ports %s, %s' % (ports, len(self.childs)))
+
+        if len(ports) != self.thread_num:
+            logging.critical('recv ports length is not equal to thread num: \
+                thread_num=%s, ports=%s' % (self.thread_num, ports))
             return
 
-        for child in self.childs:
-            child.thread = SendThread(self.ctx, child.identity, 
-                self.file_queue, child.inproc, self.path.path, timeout=self.timeout)
+        self.create_childs(ports)
+        return
 
-        thread_ports = [child.thread.port for child in self.childs]
+    def create_childs(self, ports=None):
+        self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.thread_num)
+        child_identities = [str(inproc_child.getsockopt_string(zmq.IDENTITY)) \
+            for inproc_child in inproc_childs]
 
-        self.send(self.sock, 'port', cPickle.dumps(thread_ports))
-        [child.thread.start() for child in self.childs]
+        remote_socks = [zhelpers.nonblocking_socket(self.ctx, zmq.PAIR) \
+            for i in xrange(self.thread_num)]
+
+        if ports:
+            for i, sock in enumerate(remote_socks):
+                sock.connect('tcp://%s:%s' % (self.remote_ip, ports[i]))
+            
+        else:
+            ports = []
+            for i, sock in enumerate(remote_socks):
+                port = zhelpers.bind_to_random_port(sock)
+                ports.append(port)
+
+            logging.debug('send remote ports')
+            self.remote.set_remote_ports(ports)
+
+        if self.sender:
+            for i, sock in enumerate(remote_socks):
+                self.childs.append(
+                    SendThread(self.ctx, ports[i], sock, 
+                        inproc_childs[i], self.timeout, self.pipeline,
+                        self.chunksize, self.src.path, self.file_queue)
+                    )
+        else:
+            for i, sock in enumerate(remote_socks):
+                self.childs.append(
+                    RecvThread(self.ctx, ports[i], sock,
+                        inproc_childs[i], self.timeout, self.pipeline,
+                        self.chunksize, self.dst.path)
+                )
+
+        self.child_proxies = [Proxy(self, self.inproc, child_identities[i]) \
+            for i, inproc_child in enumerate(inproc_childs)]
+
+        self.register(self.inproc)
+
+        [child.start() for child in self.childs]
+        return
+
+    def _prepare(self):
+        return False
+
+    def run(self):
+        if not self._prepare():
+            logging.critical('prepare failed')
+            return
+
+        logging.debug('%s runing' % self.__class__.__name__)
 
         while not self.stoped:
             try:
-                polls = self.poll(1000)
+                polls = self.poll(5000)
                 self.deal_poll(polls)
 
             except KeyboardInterrupt:
-                print 'user interrupted, exit'
+                logging.info('user interrupted, exit')
                 self.stop()
 
-            if not self.has_child_alive():
-                print 'all thread stop, exit'
+            if not self.check_timeout():
+                logging.info('timeout, exit')
+                self.stop()
+
+            if self.childs and not self.has_child_alive():
+                logging.info('all thread stop, exit')
                 self.stop()
         return
+

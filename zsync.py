@@ -16,7 +16,6 @@ import zsync_process
 def prepare_log():
     logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
         datefmt='%Y-%m-%d,%H:%M:%S', level=logging.DEBUG)
-    logging.debug('program begin.')
     return
 
 def prepare_args():
@@ -30,8 +29,40 @@ def prepare_args():
     parser.add_argument('-p', '--port', type=str, default='5555', help='if local, client port, else daemon port')
     parser.add_argument('--thread-num', type=int, default=3, help='sync thread num')
     parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
-    parser.add_argument('--timeout', type=int, default=5, help='connect timeout second')
+    parser.add_argument('--timeout', type=int, default=10, help='connect timeout second')
+    parser.add_argument('--pipeline', type=int, default=10, help='file fetch pipeline')
+    parser.add_argument('--chunksize', type=int, default=250000, help='chunksize for each pipeline')
     args = parser.parse_args()
+
+    src = zsync_utils.CommonPath(args.src)
+    dst = zsync_utils.CommonPath(args.dst)
+
+    if not src.isValid():
+        logging.error('src is invalid')
+        return False
+
+    if not dst.isValid():
+        logging.error('dst is invalid')
+        return False
+
+    if not 0 < args.timeout <= 300:
+        logging.error('timeout is invalid, must be in [1, 300]')
+        return False
+
+    if not 0 < args.thread_num <= 10:
+        logging.error('thread_num is invalid, must be in [1, 10]')
+        return False
+
+    if not 0 < args.pipeline <= 20:
+        logging.error('pipeline is invalid, must be in [1, 20]')
+        return False
+
+    if not 1000 <= args.chunksize <= 500000:
+        logging.error('chunksize is invalid, must be in [1000, 500000]')
+        return False
+
+    logging.debug(str(args))
+
     return args
 
 # run in different mode
@@ -40,14 +71,17 @@ def run(args):
         target = zsync_process.ZsyncDaemon(args.port)
 
     elif args.local:
-        target = zsync_process.ZsyncLocalService(args.port, args.timeout)
+        target = zsync_process.ZsyncLocalService(args.src, args.dst, args.port,
+            args.pipeline, args.chunksize, args.thread_num,
+            args.timeout, args.exclude)
 
     elif args.remote:
         target = zsync_process.ZsyncRemoteService(args.port, args.timeout)
 
     else:
         target = zsync_process.ZsyncClient(args.src, args.dst, args.port,
-            args.thread_num, args.timeout, args.exclude)
+            args.pipeline, args.chunksize, args.thread_num,
+            args.timeout, args.exclude)
     
     target.run()
     return
@@ -55,7 +89,8 @@ def run(args):
 def main():
     prepare_log()
     args = prepare_args()
-    run(args)
+    if args:
+        run(args)
     return
 
 if __name__ == '__main__':
