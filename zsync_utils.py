@@ -48,8 +48,9 @@ ip_pattern = re.compile(r'^((2[0-4]\d|25[0-5]|[01]?\d\d?)\.){3}(2[0-4]\d|25[0-5]
 
 class CommonPath(object):
     def __init__(self, path):
-        self.path = copy.deepcopy(os.path.normpath(path))
+        self.origin_path = path
         self.ip = ''
+        self.path = os.path.normpath(path)
         match = ip_pattern.match(self.path)
         if match:
             self.ip = match.group()[:-1]

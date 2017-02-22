@@ -47,18 +47,18 @@ class ZsyncDaemon(zsync_network.Transceiver):
             timeout, pipeline, chunksize, excludes):
 
         if len(self.services) > config.DAEMON_MAX_SUBPROCESS:
-            client.new_client_failed('too many clients, please try later.')
+            client.do_stop('too many clients, please try later.')
             return
 
         src = zsync_utils.CommonPath(src)
         dst = zsync_utils.CommonPath(dst)
 
         if not src.isLocal() and not src.visitValid():
-            client.new_client_failed('remote path is invalid.')
+            client.do_stop('remote path is invalid.')
             return
 
-        if not src.isLocal() and not src.visitValid():
-            client.new_client_failed('remote path is invalid.')
+        if not dst.isLocal() and not dst.visitValid():
+            client.do_stop('remote path is invalid.')
             return
 
         self.waiting_clients.append(client)
@@ -252,7 +252,7 @@ class ZsyncClient(FileTransciver):
                 excludes = None
 
             self.daemon = zsync_network.Proxy(self, self.daemon_sock)
-            self.daemon.on_new_client(self.src.full(), self.dst.full(),
+            self.daemon.on_new_client(self.src.origin_path, self.dst.origin_path,
                 self.thread_num, self.timeout, self.pipeline,
                 self.chunksize, excludes)
 
@@ -279,4 +279,3 @@ class ZsyncClient(FileTransciver):
         # 因为本地需要收到远端的 socket 接口再连接
         self.remote.begin_sync()
         return
-
