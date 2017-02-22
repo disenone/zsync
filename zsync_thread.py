@@ -133,6 +133,9 @@ class RecvThread(ZsyncThread):
             dir_name = os.path.dirname(file_path)
             dir_mode = None
 
+        zsync_utils.fix_file_type(file_path, file_type)
+        zsync_utils.fix_file_type(dir_name, config.FILE_TYPE_DIR)
+
         error = zsync_utils.makedir(dir_name, dir_mode)
         if error:
             self.log(error, logging.ERROR)
@@ -181,6 +184,7 @@ class RecvThread(ZsyncThread):
         return
 
     def run(self):
+        zsync_utils.fix_file_type(self.dst.path, config.FILE_TYPE_DIR)
         self.remote.query_new_file()
 
         ZsyncThread.run(self)

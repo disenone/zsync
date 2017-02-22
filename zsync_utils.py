@@ -4,7 +4,34 @@ import re
 import copy
 import os
 import errno
+import config
+import shutil
 
+
+def fix_file_type(file_path, file_type, from_path=''):
+    if os.path.exists(file_path):
+        exist_type = config.FILE_TYPE_DIR if os.path.isdir(file_path) else config.FILE_TYPE_FILE
+        if exist_type != file_type:
+            if exist_type == config.FILE_TYPE_FILE:
+                os.remove(file_path)
+            else:
+                shutil.rmtree(file_path)
+    else:
+        if not file_path.startswith(from_path):
+            raise ValueError('fix_file_type args is invalid')
+
+        dirs = file_path[len(from_path):].split(os.path.sep)
+        dirs = dirs[:-1]
+
+        check_path = from_path
+
+        for dir_part in dirs:
+            check_path = os.path.join(check_path, dir_part)
+            if os.path.exists(check_path) and not os.path.isdir(check_path):
+                os.remove(check_path)
+                return
+
+    return
 
 def makedir(diretory, mode = None):
     if not os.path.exists(diretory):
