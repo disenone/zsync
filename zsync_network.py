@@ -120,7 +120,7 @@ class Transceiver(object):
                 # logging.debug('sended: %s' % (msg, ))
                 return True
             except Exception as e:
-                logging.debug('send error: %s' % (e, ))
+                logging.debug('send error: %s, %s' % (e, msg))
                 self.send_queue.push_queue(sock, msg)
         else:
             self.send_queue.push_queue(sock, msg)

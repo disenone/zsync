@@ -246,7 +246,7 @@ class FileTransciver(Transceiver):
         if self.excludes:
             deln = set()
             for fname in fnames:
-                if self.excludes.isExclude(os.path.relpath(dpath, self.path.prefix_path), fname):
+                if self.excludes.isExclude(os.path.relpath(dpath, self.src.prefix_path), fname):
                     deln.add(fname)
  
             fnames[:] = set(fnames) - deln
@@ -269,6 +269,8 @@ class FileTransciver(Transceiver):
             logging.error('remote path is not dir nor file')
             self.remote.remote_error('remote path is not dir nor file')
             return False
+
+        logging.debug(str(self.file_queue))
 
         return True
 

@@ -166,6 +166,7 @@ class ZsyncLocalService(FileTransciver):
             return False
 
         self.remote.shake_hand()
+        self.create_childs()
         logging.debug('local service started')
         return True
 
