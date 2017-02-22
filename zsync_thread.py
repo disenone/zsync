@@ -122,16 +122,16 @@ class RecvThread(ZsyncThread):
         self.ready = True
         return
 
-    def on_new_file(self, service, file_path, file_type, file_mode, file_size):
-        file_mode = int(file_mode)
-        file_size = int(file_size)
+    def on_new_file(self, service, file_path, file_type, file_mode, file_size, file_time):
         file_path = os.path.join(self.dst.path, file_path)
         if file_type == config.FILE_TYPE_DIR:
             dir_name = file_path
             dir_mode = file_mode
+            dir_time = file_time
         else:
             dir_name = os.path.dirname(file_path)
             dir_mode = None
+            dir_time = file_time
 
         zsync_utils.fix_file_type(file_path, file_type)
         zsync_utils.fix_file_type(dir_name, config.FILE_TYPE_DIR)

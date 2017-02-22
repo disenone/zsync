@@ -3,14 +3,30 @@
 import re
 import copy
 import os
+import stat
 import errno
 import config
 import shutil
 
+def check_file_same(file_path, file_size, file_time):
+    if not os.path.exists(file_path):
+        return False
+        
+    file_stat = os.stat(file_path)
+    
+    if file_stat[stat.ST_TIME] != file_time:
+        return False
+    
+    if file_stat[stat.ST_SIZE] != file_size:
+        return False
+        
+    return True
 
 def fix_file_type(file_path, file_type, from_path=''):
     if os.path.exists(file_path):
-        exist_type = config.FILE_TYPE_DIR if os.path.isdir(file_path) else config.FILE_TYPE_FILE
+        exist_type = config.FILE_TYPE_DIR if os.path.isdir(file_path) \
+            else config.FILE_TYPE_FILE
+            
         if exist_type != file_type:
             if exist_type == config.FILE_TYPE_FILE:
                 os.remove(file_path)
@@ -33,14 +49,15 @@ def fix_file_type(file_path, file_type, from_path=''):
 
     return
 
-def makedir(diretory, mode = None):
-    if not os.path.exists(diretory):
+def makedir(directory, mode = None):
+    if not os.path.exists(directory):
         try:
-            os.makedirs(diretory)
+            os.makedirs(directory)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 return str(e)
-        if mode:
+     if mode:
+        if os.stat(directory)[stat.ST_MODE] != mode:
             os.chmod(diretory, mode)
     return None
 
