@@ -77,8 +77,8 @@ class SendThread(ZsyncThread):
 
     def query_new_file(self, client):
         if not self.file_queue:
-            self.stop()
             client.send_over()
+            self.stop()
             return
 
         file_path = self.file_queue.popleft()
@@ -95,7 +95,12 @@ class SendThread(ZsyncThread):
             file_type, file_mode, file_size)
 
         if file_type == config.FILE_TYPE_FILE:
-            self.file.open(file_path, 'rb')
+            try:
+                self.file.open(file_path, 'rb')
+            except Exception as e:
+                client.do_stop(str(e))
+                self.stop()
+                return
         return
 
     def fetch_file(self, client, offset):
@@ -130,7 +135,7 @@ class RecvThread(ZsyncThread):
 
         error = zsync_utils.makedir(dir_name, dir_mode)
         if error:
-            self.log('ERROR: ' + error)
+            self.log(error, logging.ERROR)
             self.remote.query_new_file()
             return
 
@@ -138,7 +143,13 @@ class RecvThread(ZsyncThread):
             self.remote.query_new_file()
             return
 
-        self.file.open(file_path, 'wb', file_size, self.pipeline)
+        try:
+            self.file.open(file_path, 'wb', file_size, self.pipeline)
+        except Exception as e:
+            service.do_stop(str(e))
+            self.stop()
+            return
+
         self.log('fetching file: %s size %s' % (file_path, file_size))
         self.sendfetch(service)
         return

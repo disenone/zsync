@@ -62,12 +62,15 @@ class ZsyncDaemon(zsync_network.Transceiver):
             return
 
         self.waiting_clients.append(client)
-        sub_args = ['python', 'zsync.py', src.full(), dst.full(), \
-            '--remote', '--port', str(self.port), \
+        sub_args = [
+            'python', 'zsync.py',
+            src.full(), dst.full(), '--remote', \
+            '--port', str(self.port), \
             '--thread-num', str(thread_num), \
             '--timeout', str(timeout), \
             '--pipeline', str(pipeline), \
-            '--chunksize', str(chunksize)]
+            '--chunksize', str(chunksize), \
+            ]
 
         if excludes:
             for exclude in excludes:
@@ -208,10 +211,14 @@ class ZsyncClient(FileTransciver):
                 logging.critical('failed to bind random to random port')
                 return False
 
-            sub_args = ['python', 'zsync.py', self.src.full(),
-                self.dst.full(), '--local', '--port', str(self.remote_port),
-                '--pipeline', str(self.pipeline), '--chunksize', str(self.chunksize),
-                '--thread-num', str(self.thread_num)]
+            sub_args = [
+                'python', 'zsync.py', 
+                self.src.full(), self.dst.full(), '--local', \
+                '--port', str(self.remote_port), \
+                '--pipeline', str(self.pipeline), \
+                '--chunksize', str(self.chunksize), \
+                '--thread-num', str(self.thread_num), \
+                ]
 
             if self.excludes:
                 for exclude in self.excludes.excludes_origin:
@@ -268,6 +275,8 @@ class ZsyncClient(FileTransciver):
             self.remote.do_stop('remote prepare sender failed.')
             return
 
+        # 让远端开始创建线程传送数据，只能远端先创建，
+        # 因为本地需要收到远端的 socket 接口再连接
         self.remote.begin_sync()
         return
 
