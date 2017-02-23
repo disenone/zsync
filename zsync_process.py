@@ -46,6 +46,8 @@ class ZsyncDaemon(zsync_network.Transceiver):
     def on_new_client(self, client, src, dst, thread_num,
             timeout, pipeline, chunksize, excludes):
 
+        self.services = [s if s.is_alive() for s in self.services]
+
         if len(self.services) > config.DAEMON_MAX_SUBPROCESS:
             client.do_stop('too many clients, please try later.')
             return
