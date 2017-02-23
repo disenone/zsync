@@ -165,6 +165,7 @@ class RecvThread(ZsyncThread):
             self.file.open(file_path, 'wb', file_size, self.pipeline, file_mode, file_mtime)
         except Exception as e:
             service.query_new_file()
+            logging.error(str(e))
             # service.do_stop(str(e))
             # self.stop()
             return
