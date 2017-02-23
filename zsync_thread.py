@@ -82,17 +82,26 @@ class SendThread(ZsyncThread):
             return
 
         file_path = self.file_queue.popleft()
+
+        try:
+            file_stat = os.stat(file_path)
+        except Exception as e:
+            client.do_stop(str(e))
+            self.stop()
+            return
+
         if os.path.isdir(file_path):
             file_type = config.FILE_TYPE_DIR
             file_size = 0
         else:
             file_type = config.FILE_TYPE_FILE
-            file_size = os.path.getsize(file_path)
+            file_size = file_stat.st_size
 
-        file_mode = os.stat(file_path)[stat.ST_MODE]
+        file_mode = file_stat.st_mode
+        file_time = file_stat.st_mtime
 
         client.on_new_file(os.path.relpath(file_path, self.src.prefix_path),
-            file_type, file_mode, file_size)
+            file_type, file_mode, file_size, file_time)
 
         if file_type == config.FILE_TYPE_FILE:
             try:
@@ -122,16 +131,20 @@ class RecvThread(ZsyncThread):
         self.ready = True
         return
 
-    def on_new_file(self, service, file_path, file_type, file_mode, file_size, file_time):
+    def on_new_file(self, service, file_path, file_type, file_mode, file_size, file_mtime):
         file_path = os.path.join(self.dst.path, file_path)
         if file_type == config.FILE_TYPE_DIR:
             dir_name = file_path
             dir_mode = file_mode
-            dir_time = file_time
+            dir_time = file_mtime
         else:
             dir_name = os.path.dirname(file_path)
             dir_mode = None
-            dir_time = file_time
+            dir_time = file_mtime
+
+            if zsync_utils.check_file_same(file_path, file_size, file_mtime):
+                self.remote.query_new_file()
+                return
 
         zsync_utils.fix_file_type(file_path, file_type)
         zsync_utils.fix_file_type(dir_name, config.FILE_TYPE_DIR)
@@ -147,7 +160,7 @@ class RecvThread(ZsyncThread):
             return
 
         try:
-            self.file.open(file_path, 'wb', file_size, self.pipeline)
+            self.file.open(file_path, 'wb', file_size, self.pipeline, file_mode, file_mtime)
         except Exception as e:
             service.do_stop(str(e))
             self.stop()

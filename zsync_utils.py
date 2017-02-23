@@ -8,16 +8,14 @@ import errno
 import config
 import shutil
 
-def check_file_same(file_path, file_size, file_time):
+def check_file_same(file_path, file_size, file_mtime):
     if not os.path.exists(file_path):
         return False
         
     file_stat = os.stat(file_path)
     
-    if file_stat[stat.ST_TIME] != file_time:
-        return False
-    
-    if file_stat[stat.ST_SIZE] != file_size:
+    if file_stat.st_mtime != file_mtime or \
+        file_stat.st_size != file_size:
         return False
         
     return True
@@ -56,9 +54,8 @@ def makedir(directory, mode = None):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 return str(e)
-     if mode:
-        if os.stat(directory)[stat.ST_MODE] != mode:
-            os.chmod(diretory, mode)
+    if mode and os.stat(directory)[stat.ST_MODE] != mode:
+            os.chmod(directory, mode)
     return None
 
 ip_pattern = re.compile(r'^((2[0-4]\d|25[0-5]|[01]?\d\d?)\.){3}(2[0-4]\d|25[0-5]|[01]?\d\d?):|^localhost:')
@@ -103,6 +100,7 @@ class CommonFile(object):
         self.file = None
         self.mode = 0
         self.file_mode = 0
+        self.file_mtime = 0
         self.chunk_map = {}
         self.credit = 0
         self.fetch_offset = 0
@@ -119,17 +117,21 @@ class CommonFile(object):
         if self.file:
             self.file.close()
             self.file = None
-            if 'w' in self.mode and self.file_mode:
-                os.chmod(self.path, self.file_mode)
+            if 'w' in self.mode:
+                if self.file_mode:
+                    os.chmod(self.path, self.file_mode)
+                if self.file_mtime:
+                    os.utime(self.path, (self.file_mtime, self.file_mtime))
         return
 
-    def open(self, path, mode, total=0, credit=0, file_mode=0):
+    def open(self, path, mode, total=0, credit=0, file_mode=0, file_mtime=0):
         self.close()
         self.__init__()
         self.path = path
         self.mode = mode
         self.file = open(path, mode)
         self.file_mode = file_mode
+        self.file_mtime = file_mtime
         self.total = total
         self.credit = credit
         return
