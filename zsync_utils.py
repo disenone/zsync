@@ -7,6 +7,8 @@ import stat
 import errno
 import config
 import shutil
+import logging
+
 
 def check_file_same(file_path, file_size, file_mtime):
     if not os.path.exists(file_path):
@@ -14,7 +16,7 @@ def check_file_same(file_path, file_size, file_mtime):
         
     file_stat = os.stat(file_path)
     
-    if file_stat.st_mtime != file_mtime or \
+    if abs(file_stat.st_mtime - file_mtime) > config.FILE_MODIFY_WINDOW or \
         file_stat.st_size != file_size:
         return False
         
@@ -47,15 +49,22 @@ def fix_file_type(file_path, file_type, from_path=''):
 
     return
 
-def makedir(directory, mode = None):
+def makedir(directory, mode = None, mtime = None):
     if not os.path.exists(directory):
         try:
             os.makedirs(directory)
         except OSError as e:
             if e.errno != errno.EEXIST:
                 return str(e)
-    if mode and os.stat(directory)[stat.ST_MODE] != mode:
+
+    if mode or mtime:
+        dir_stat = os.stat(directory)
+
+        if mode and dir_stat[stat.ST_MODE] != mode:
             os.chmod(directory, mode)
+
+        if mtime and dir_stat[stat.ST_MTIME] != mtime:
+            os.utime(directory, (mtime, mtime))
     return None
 
 ip_pattern = re.compile(r'^((2[0-4]\d|25[0-5]|[01]?\d\d?)\.){3}(2[0-4]\d|25[0-5]|[01]?\d\d?):|^localhost:')
