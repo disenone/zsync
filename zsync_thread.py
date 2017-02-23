@@ -43,8 +43,9 @@ class ZsyncThread(threading.Thread, Transceiver):
         Transceiver.register(self, self.inproc_sock)
         return
 
-    def do_stop(self, inproc):
-        logging.debug('do_stop')
+    def do_stop(self, inproc, msg=''):
+        if msg:
+            logging.debug(msg)
         self.stop()
         return
 
