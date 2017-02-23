@@ -298,8 +298,6 @@ class FileTransciver(Transceiver):
             self.remote.remote_error('remote path is not dir nor file')
             return False
 
-        logging.debug(str(self.file_queue))
-
         return True
 
     def set_remote_ports(self, service, ports):
