@@ -145,7 +145,7 @@ class RecvThread(ZsyncThread):
             dir_time = None
 
             if zsync_utils.check_file_same(file_path, file_size, file_mtime):
-                self.remote.query_new_file()
+                service.query_new_file()
                 return
 
         zsync_utils.fix_file_type(file_path, file_type)
@@ -154,23 +154,24 @@ class RecvThread(ZsyncThread):
         error = zsync_utils.makedir(dir_name, dir_mode, dir_time)
         if error:
             self.log(error, logging.ERROR)
-            self.remote.query_new_file()
+            service.query_new_file()
             return
 
         if file_type == config.FILE_TYPE_DIR:
-            self.remote.query_new_file()
+            service.query_new_file()
             return
 
         try:
             self.file.open(file_path, 'wb', file_size, self.pipeline, file_mode, file_mtime)
         except Exception as e:
-            service.do_stop(str(e))
-            self.stop()
+            service.query_new_file()
+            # service.do_stop(str(e))
+            # self.stop()
             return
 
         if file_size == 0:
             self.file.close()
-            self.remote.query_new_file()
+            service.query_new_file()
             return
 
         self.log('fetching file: %s size %s' % (file_path, file_size))
