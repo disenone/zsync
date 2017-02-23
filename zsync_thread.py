@@ -95,6 +95,7 @@ class SendThread(ZsyncThread):
             if file_type == config.FILE_TYPE_FILE:
                 self.file.open(file_path, 'rb')
         except Exception as e:
+            self.log(str(e), logging.ERROR)
             client.remote_msg(str(e), logging.ERROR)
             return False
 
