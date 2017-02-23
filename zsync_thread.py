@@ -64,6 +64,10 @@ class ZsyncThread(threading.Thread, Transceiver):
 
         return
 
+    def remote_msg(self, remote, msg, level=logging.DEBUG):
+        self.log(msg, level)
+        return
+
 class SendThread(ZsyncThread):
     def __init__(self, ctx, remote_port, remote_sock, 
             inproc_sock, timeout, pipeline, chunksize,
@@ -76,41 +80,37 @@ class SendThread(ZsyncThread):
         self.src = zsync_utils.CommonPath(src_path)
         return
 
-    def query_new_file(self, client):
+    def try_send_new_file(self, client):
         if not self.file_queue:
             client.send_over()
             self.stop()
-            return
+            return True
 
         file_path = self.file_queue.popleft()
 
         try:
             file_stat = os.stat(file_path)
+            file_type = config.FILE_TYPE_DIR if os.path.isdir(file_path) \
+                else config.FILE_TYPE_FILE
+            if file_type == config.FILE_TYPE_FILE:
+                self.file.open(file_path, 'rb')
         except Exception as e:
-            client.do_stop(str(e))
-            self.stop()
-            return
+            client.remote_msg(str(e), logging.ERROR)
+            return False
 
-        if os.path.isdir(file_path):
-            file_type = config.FILE_TYPE_DIR
-            file_size = 0
-        else:
-            file_type = config.FILE_TYPE_FILE
-            file_size = file_stat.st_size
-
+        file_size = file_stat.st_size
         file_mode = file_stat.st_mode
         file_time = file_stat.st_mtime
 
         client.on_new_file(os.path.relpath(file_path, self.src.prefix_path),
             file_type, file_mode, file_size, file_time)
 
-        if file_type == config.FILE_TYPE_FILE:
-            try:
-                self.file.open(file_path, 'rb')
-            except Exception as e:
-                client.do_stop(str(e))
-                self.stop()
-                return
+        return True
+
+    def query_new_file(self, client):
+        while not self.try_send_new_file(client):
+            pass
+
         return
 
     def fetch_file(self, client, offset):
