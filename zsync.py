@@ -31,6 +31,7 @@ def prepare_args():
     parser.add_argument('--pipeline', type=int, default=10, help='file fetch pipeline')
     parser.add_argument('--chunksize', type=int, default=250000, help='chunksize for each pipeline')
     parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
+    parser.add_argument('--compress', action='store_true', help='compress data')
     args = parser.parse_args()
 
     src = zsync_utils.CommonPath(args.src)
@@ -60,29 +61,32 @@ def prepare_args():
         logging.error('chunksize is invalid, must be in [1000, 500000]')
         return False
 
-    logging.debug(str(args))
+    args.excludes = args.exclude
+    delattr(args, 'exclude')
+
+    try:
+        zsync_utils.CommonExclude(args.excludes)
+    except Exception as e:
+        logging.error('--exclude pattern error: ' + str(e))
+        return False
+
+    logging.debug(args)
 
     return args
 
 # run in different mode
 def run(args):
     if args.daemon:
-        target = zsync_process.ZsyncDaemon(args.port)
+        target = zsync_process.ZsyncDaemon(args)
 
     elif args.local:
-        target = zsync_process.ZsyncLocalService(args.src, args.dst, args.port,
-            args.pipeline, args.chunksize, args.thread_num,
-            args.timeout, args.exclude)
+        target = zsync_process.ZsyncLocalService(args)
 
     elif args.remote:
-        target = zsync_process.ZsyncRemoteService(args.src, args.dst, args.port,
-            args.pipeline, args.chunksize, args.thread_num,
-            args.timeout, args.exclude)
+        target = zsync_process.ZsyncRemoteService(args)
 
     else:
-        target = zsync_process.ZsyncClient(args.src, args.dst, args.port,
-            args.pipeline, args.chunksize, args.thread_num,
-            args.timeout, args.exclude)
+        target = zsync_process.ZsyncClient(args)
     
     target.run()
     return

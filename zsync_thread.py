@@ -9,11 +9,12 @@ import zsync_utils
 from zsync_network import Transceiver, Proxy
 import config
 import logging
+import zlib
 
 
 class ZsyncThread(threading.Thread, Transceiver):
     def __init__(self, ctx, remote_port, remote_sock, 
-            inproc_sock, timeout, pipeline, chunksize):
+            inproc_sock, timeout, pipeline, chunksize, compress):
 
         threading.Thread.__init__(self)
         Transceiver.__init__(self)
@@ -21,6 +22,7 @@ class ZsyncThread(threading.Thread, Transceiver):
         self.timeout = timeout
         self.pipeline = pipeline
         self.chunksize = chunksize
+        self.compress = compress
         self.remote_port = remote_port
         self.remote_sock = remote_sock
         self.remote = Proxy(self, remote_sock)
@@ -67,10 +69,10 @@ class ZsyncThread(threading.Thread, Transceiver):
 class SendThread(ZsyncThread):
     def __init__(self, ctx, remote_port, remote_sock, 
             inproc_sock, timeout, pipeline, chunksize,
-            src_path, file_queue):
+            src_path, file_queue, compress):
 
         ZsyncThread.__init__(self, ctx, remote_port,
-            remote_sock, inproc_sock, timeout, pipeline, chunksize)
+            remote_sock, inproc_sock, timeout, pipeline, chunksize, compress)
 
         self.file_queue = file_queue
         self.src = zsync_utils.CommonPath(src_path)
@@ -117,6 +119,10 @@ class SendThread(ZsyncThread):
     def fetch_file(self, client, offset):
         offset = int(offset)
         data = self.file.fetch(offset, self.chunksize)
+
+        if self.compress:
+            data = zlib.compress(data)
+
         client.call_raw('on_fetch_file', str(offset), data)
         #self.log('send file offset %s len %s' % (offset, len(data)))
         return
@@ -124,10 +130,10 @@ class SendThread(ZsyncThread):
 
 class RecvThread(ZsyncThread):
     def __init__(self, ctx, remote_port, remote_sock, 
-            inproc_sock, timeout, pipeline, chunksize, dst_path):
+            inproc_sock, timeout, pipeline, chunksize, dst_path, compress):
 
         ZsyncThread.__init__(self, ctx, remote_port,
-            remote_sock, inproc_sock, timeout, pipeline, chunksize)
+            remote_sock, inproc_sock, timeout, pipeline, chunksize, compress)
 
         self.dst = zsync_utils.CommonPath(dst_path)
         self.ready = True
@@ -192,6 +198,8 @@ class RecvThread(ZsyncThread):
 
     def on_fetch_file(self, service, offset, data):
         # self.log('recv file offset %s len %s' % (offset, len(data)))
+        if self.compress:
+            data = zlib.decompress(data)
         self.file.write_chunk(int(offset), data)
         self.file.credit += 1
         if self.file.writedone:
@@ -213,32 +221,25 @@ class RecvThread(ZsyncThread):
         return
 
 class FileTransciver(Transceiver):
-    def __init__(self, ctx, src_path, dst_path, 
-            pipeline=0, chunksize=0, thread_num=0, 
-            timeout=10, excludes=None):
+    def __init__(self, ctx, args):
 
         Transceiver.__init__(self)
+        self.args = args
         self.ctx = ctx
-        self.src = zsync_utils.CommonPath(src_path)
-        self.dst = zsync_utils.CommonPath(dst_path)
         self.remote_sock = None
         self.remote_ip = None
         self.remote_port = None
         self.remote = None
         self.sender = False
-        self.pipeline = pipeline
-        self.chunksize = chunksize
-        self.thread_num = thread_num
-        self.timeout = timeout
-        self.excludes = None
         self.inproc_sock = None
         self.childs = []
         self.child_proxies = []
         self.file_queue = deque()
         self.stoped = False
 
-        if excludes:
-            self.excludes = zsync_utils.CommonExclude(excludes)
+        self.src = zsync_utils.CommonPath(self.args.src)
+        self.dst = zsync_utils.CommonPath(self.args.dst)
+        self.excludes = zsync_utils.CommonExclude(self.args.excludes)
         return
 
     def on_child_log(self, child, msg, level):
@@ -274,11 +275,6 @@ class FileTransciver(Transceiver):
         self.del_timeout(remote.sock)
         return
 
-    def remote_error(self, remote, msg):
-        logging.critical(msg)
-        self.stop()
-        return
-
     def print_msg(self, remote, msg, level=logging.DEBUG):
         logging.log(level, msg)
         return
@@ -299,13 +295,13 @@ class FileTransciver(Transceiver):
 
     def prepare_sender(self):
         if not self.src.visitValid():
-            logging.error('remote path not exist %s' % self.src.full())
-            self.remote.remote_error('remote path not exist')
+            logging.error('remote path not exist %s' % self.src.origin_path)
+            self.remote.do_stop('remote path not exist', logging.ERROR)
             return False
 
         if os.path.islink(self.src.path):
             logging.error('remote path is not supported link')
-            self.remote.remote_error('remote path is not supported link')
+            self.remote.do_stop('remote path is not supported link', logging.ERROR)
             return False
         if os.path.isdir(self.src.path):
             os.path.walk(self.src.path, self.put_queue, self)
@@ -313,28 +309,28 @@ class FileTransciver(Transceiver):
             self.file_queue.append(self.src.path)
         else:
             logging.error('remote path is not dir nor file')
-            self.remote.remote_error('remote path is not dir nor file')
+            self.remote.do_stop('remote path is not dir nor file', logging.ERROR)
             return False
 
         return True
 
     def set_remote_ports(self, service, ports):
         # logging.debug('set_remote_ports %s, %s' % (ports, self.sender))
-        if len(ports) != self.thread_num:
+        if len(ports) != self.args.thread_num:
             logging.critical('recv ports length is not equal to thread num: \
-                thread_num=%s, ports=%s' % (self.thread_num, ports))
+                thread_num=%s, ports=%s' % (self.args.thread_num, ports))
             return
 
         self.create_childs(ports)
         return
 
     def create_childs(self, ports=None):
-        self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.thread_num)
+        self.inproc, inproc_childs = zhelpers.zpipes(self.ctx, self.args.thread_num)
         child_identities = [str(inproc_child.getsockopt_string(zmq.IDENTITY)) \
             for inproc_child in inproc_childs]
 
         remote_socks = [zhelpers.nonblocking_socket(self.ctx, zmq.PAIR) \
-            for i in xrange(self.thread_num)]
+            for i in xrange(self.args.thread_num)]
 
         if ports:
             for i, sock in enumerate(remote_socks):
@@ -353,15 +349,16 @@ class FileTransciver(Transceiver):
             for i, sock in enumerate(remote_socks):
                 self.childs.append(
                     SendThread(self.ctx, ports[i], sock, 
-                        inproc_childs[i], self.timeout, self.pipeline,
-                        self.chunksize, self.src.path, self.file_queue)
+                        inproc_childs[i], self.args.timeout, self.args.pipeline,
+                        self.args.chunksize, self.src.path, self.file_queue, 
+                        self.args.compress)
                     )
         else:
             for i, sock in enumerate(remote_socks):
                 self.childs.append(
                     RecvThread(self.ctx, ports[i], sock,
-                        inproc_childs[i], self.timeout, self.pipeline,
-                        self.chunksize, self.dst.path)
+                        inproc_childs[i], self.args.timeout, self.args.pipeline,
+                        self.args.chunksize, self.dst.path, self.args.compress)
                 )
 
         self.child_proxies = [Proxy(self, self.inproc, child_identities[i]) \

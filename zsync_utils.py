@@ -181,6 +181,7 @@ class CommonFile(object):
 class CommonExclude(object):
     def __init__(self, excludes):
         self.excludes_origin = copy.deepcopy(excludes)
+        self.excludes = None
         if excludes:
             self.excludes = [re.compile(exclude) for exclude in excludes]
         return
@@ -206,3 +207,38 @@ class CommonExclude(object):
                     return True
 
         return False
+
+def create_sub_process(args_dict):
+
+    import subprocess
+    import inspect
+    file_path = inspect.stack()[-1][1]
+    dir_path = os.path.dirname(file_path)
+    zsync_path = os.path.join(dir_path, 'zsync.py')
+
+    sub_args = [
+        'python', zsync_path,
+        args_dict['src'], args_dict['dst'], \
+        '--port', str(args_dict['port']), \
+        '--thread-num', str(args_dict['thread_num']), \
+        '--timeout', str(args_dict['timeout']), \
+        '--pipeline', str(args_dict['pipeline']), \
+        '--chunksize', str(args_dict['chunksize']), \
+    ]
+
+    if args_dict['excludes']:
+        for exclude in args_dict['excludes']:
+            sub_args.extend(['--exclude', str(exclude)])
+
+    if args_dict.get('local'):
+        sub_args.append('--local')
+
+    if args_dict.get('remote'):
+        sub_args.append('--remote')
+
+    if args_dict.get('compress'):
+        sub_args.append('--compress')
+
+    logging.debug('creating subprocess %s' % sub_args)
+    sub = subprocess.Popen(sub_args)
+    return sub
