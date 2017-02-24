@@ -2,11 +2,7 @@
 
 import threading
 from collections import deque
-import time
 import os
-import cPickle
-import binascii
-import stat
 import zmq
 import zhelpers
 import zsync_utils
@@ -245,8 +241,9 @@ class FileTransciver(Transceiver):
         logging.log(level, msg)
         return
 
-    def do_stop(self, remote, msg):
-        logging.critical(msg)
+    def do_stop(self, remote, msg='', level=logging.DEBUG):
+        if msg:
+            logging.log(level, msg)
         self.stop()
         return
 

@@ -91,7 +91,7 @@ class ZsyncDaemon(zsync_network.Transceiver):
 
     def on_new_service(self, service, port):
         if not self.waiting_clients:
-            service.exit()
+            service.do_stop()
             return
 
         client = self.waiting_clients.popleft()
