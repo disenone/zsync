@@ -60,10 +60,19 @@ class ZsyncThread(threading.Thread, Transceiver):
             polls = self.poll(1000)
             self.deal_poll(polls)
 
+            if not self.check_timeout():
+                if self.file.is_open():
+                    self.sync_file_timeout()
+                    continue
+                self.stop()
         return
 
     def remote_msg(self, remote, msg, level=logging.DEBUG):
         self.log(msg, level)
+        return
+
+    def sync_file_timeout(self):
+        self.file.close()
         return
 
 class SendThread(ZsyncThread):
@@ -79,6 +88,7 @@ class SendThread(ZsyncThread):
         return
 
     def try_send_new_file(self, client):
+        self.file.close()
         if not self.file_queue:
             client.send_over()
             self.stop()
@@ -125,6 +135,12 @@ class SendThread(ZsyncThread):
 
         client.call_raw('on_fetch_file', str(offset), data)
         #self.log('send file offset %s len %s' % (offset, len(data)))
+        return
+
+    def retry_file(self, client, file_path):
+        file_path = os.path.join(self.src.prefix_path, file_path)
+        self.file_queue.append(file_path)
+        self.query_new_file(client)
         return
 
 
@@ -190,6 +206,10 @@ class RecvThread(ZsyncThread):
             if self.file.fetch_offset >= self.file.total:
                 break
             
+            # waiting for pre chunk
+            if len(self.file.chunk_map) > 10:
+                break
+
             service.call_raw('fetch_file', str(self.file.fetch_offset))
             self.file.fetch_offset += self.chunksize
             self.file.credit -= 1
@@ -207,6 +227,14 @@ class RecvThread(ZsyncThread):
             service.query_new_file()
         else:
             self.sendfetch(service)
+        return
+
+    def sync_file_timeout(self):
+        self.file.close()
+        self.log('sync file failed, auto put in queue again and retry', logging.ERROR)
+
+        relpath = os.path.relpath(self.file.path, self.dst.prefix_path)
+        self.remote.retry_file(relpath)
         return
 
     def send_over(self, service):
@@ -242,13 +270,23 @@ class FileTransciver(Transceiver):
         self.excludes = zsync_utils.CommonExclude(self.args.excludes)
         return
 
-    def on_child_log(self, child, msg, level):
+    def remote_msg(self, remote, msg, level=logging.DEBUG):
+        self.log(level, 'remote: ' + msg)
+        return
+
+    def log(self, level, msg):
+        if level >= logging.ERROR and self.remote:
+            self.remote.remote_msg(msg, level)
         logging.log(level, msg)
+        return
+
+    def on_child_log(self, child, msg, level):
+        self.log(level, msg)
         return
 
     def do_stop(self, remote, msg='', level=logging.DEBUG):
         if msg:
-            logging.log(level, msg)
+            self.log(level, msg)
         self.stop()
         return
 
@@ -275,10 +313,6 @@ class FileTransciver(Transceiver):
         self.del_timeout(remote.sock)
         return
 
-    def print_msg(self, remote, msg, level=logging.DEBUG):
-        logging.log(level, msg)
-        return
-
     @staticmethod
     def put_queue(self, dpath, fnames):
         if self.excludes:
@@ -295,21 +329,21 @@ class FileTransciver(Transceiver):
 
     def prepare_sender(self):
         if not self.src.visitValid():
-            logging.error('remote path not exist %s' % self.src.origin_path)
-            self.remote.do_stop('remote path not exist', logging.ERROR)
+            self.log(logging.ERROR, 'path not exist %s' % self.src.origin_path)
+            self.remote.do_stop()
             return False
 
         if os.path.islink(self.src.path):
-            logging.error('remote path is not supported link')
-            self.remote.do_stop('remote path is not supported link', logging.ERROR)
+            self.log(logging.ERROR, 'path is not supported link %s' % self.src.origin_path)
+            self.remote.do_stop()
             return False
         if os.path.isdir(self.src.path):
             os.path.walk(self.src.path, self.put_queue, self)
         elif os.path.isfile(self.src.path):
             self.file_queue.append(self.src.path)
         else:
-            logging.error('remote path is not dir nor file')
-            self.remote.do_stop('remote path is not dir nor file', logging.ERROR)
+            self.log(logging.ERROR, 'path is not dir nor file %s' % self.src.origin_path)
+            self.remote.do_stop()
             return False
 
         return True
@@ -317,8 +351,9 @@ class FileTransciver(Transceiver):
     def set_remote_ports(self, service, ports):
         # logging.debug('set_remote_ports %s, %s' % (ports, self.sender))
         if len(ports) != self.args.thread_num:
-            logging.critical('recv ports length is not equal to thread num: \
+            self.log(logging.CRITICAL, 'recv ports length is not equal to thread num: \
                 thread_num=%s, ports=%s' % (self.args.thread_num, ports))
+            service.do_stop()
             return
 
         self.create_childs(ports)
@@ -385,10 +420,10 @@ class FileTransciver(Transceiver):
                 self.deal_poll(polls)
 
             except KeyboardInterrupt:
-                logging.info('user interrupted, exit')
+                self.log(logging.INFO, 'user interrupted, exit')
                 self.stop()
                 if self.remote:
-                    self.remote.do_stop('remote interrupt')
+                    self.remote.do_stop()
 
             if not self.check_timeout():
                 logging.info('timeout, exit')

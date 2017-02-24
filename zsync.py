@@ -11,6 +11,7 @@ import subprocess
 from collections import deque
 import logging
 import zsync_process
+import time
 
 
 def prepare_log():
@@ -99,4 +100,7 @@ def main():
     return
 
 if __name__ == '__main__':
+    begin_time = time.time()
     main()
+    end_time = time.time()
+    logging.info('cost time: %ss' % (end_time - begin_time))

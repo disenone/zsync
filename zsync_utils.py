@@ -122,6 +122,12 @@ class CommonFile(object):
         self.close()
         return
 
+    def is_open(self):
+        return self.file
+
+    def writing_file(self):
+        return self.file and 'w' in self.mode
+
     def close(self):
         if self.file:
             self.file.close()
@@ -151,7 +157,7 @@ class CommonFile(object):
         return data
 
     def write(self, data):
-        if self.writedone:
+        if not self.file:
             return
         self.file.write(data)
         self.write_offset += len(data)
@@ -161,7 +167,7 @@ class CommonFile(object):
         return
 
     def write_chunk(self, offset, data):
-        if self.writedone:
+        if not self.file:
             return
 
         if offset != self.write_offset:
