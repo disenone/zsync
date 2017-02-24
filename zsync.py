@@ -29,7 +29,7 @@ def prepare_args():
     parser.add_argument('--thread-num', type=int, default=3, help='sync thread num')
     parser.add_argument('--timeout', type=int, default=10, help='connect timeout second')
     parser.add_argument('--pipeline', type=int, default=10, help='file fetch pipeline')
-    parser.add_argument('--chunksize', type=int, default=250000, help='chunksize for each pipeline')
+    parser.add_argument('--chunksize', type=int, default=262144, help='chunksize for each pipeline')
     parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
     parser.add_argument('--compress', action='store_true', help='compress data')
     args = parser.parse_args()
