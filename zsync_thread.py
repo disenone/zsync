@@ -84,6 +84,10 @@ class SendThread(ZsyncThread):
 
         file_path = self.file_queue.popleft()
 
+        if os.path.islink(file_path):
+            client.remote_msg('skip link file: %s' % file_path)
+            return False
+
         try:
             file_stat = os.stat(file_path)
             file_type = config.FILE_TYPE_DIR if os.path.isdir(file_path) \
@@ -275,6 +279,10 @@ class FileTransciver(Transceiver):
         self.stop()
         return
 
+    def print_msg(self, remote, msg, level=logging.DEBUG):
+        logging.log(level, msg)
+        return
+
     @staticmethod
     def put_queue(self, dpath, fnames):
         if self.excludes:
@@ -295,6 +303,10 @@ class FileTransciver(Transceiver):
             self.remote.remote_error('remote path not exist')
             return False
 
+        if os.path.islink(self.src.path):
+            logging.error('remote path is not supported link')
+            self.remote.remote_error('remote path is not supported link')
+            return False
         if os.path.isdir(self.src.path):
             os.path.walk(self.src.path, self.put_queue, self)
         elif os.path.isfile(self.src.path):
