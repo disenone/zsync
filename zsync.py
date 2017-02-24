@@ -57,7 +57,7 @@ def prepare_args():
         logging.error('pipeline is invalid, must be in [1, 20]')
         return False
 
-    if not 1000 <= args.chunksize <= 500000:
+    if not 1000 <= args.chunksize <= 1048576:
         logging.error('chunksize is invalid, must be in [1000, 500000]')
         return False
 
