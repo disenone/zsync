@@ -50,7 +50,7 @@ class ZsyncThread(threading.Thread, Transceiver):
     def stop(self):
         self.stoped = True
 
-    def log(self, msg, level=logging.DEBUG):
+    def log(self, msg, level=logging.INFO):
         self.inproc.on_child_log('thread %s: %s' % (self.identity, msg), level)
         return
 
@@ -63,12 +63,13 @@ class ZsyncThread(threading.Thread, Transceiver):
             if not self.check_timeout():
                 if self.file.is_open():
                     self.sync_file_timeout()
-                    continue
-                self.stop()
+                    self.delay_all_timeout()
+                else:
+                    self.stop()
         return
 
     def remote_msg(self, remote, msg, level=logging.DEBUG):
-        self.log(msg, level)
+        self.log('remote: ' + msg, level)
         return
 
     def sync_file_timeout(self):
@@ -88,7 +89,6 @@ class SendThread(ZsyncThread):
         return
 
     def try_send_new_file(self, client):
-        self.file.close()
         if not self.file_queue:
             client.send_over()
             self.stop()
@@ -139,6 +139,8 @@ class SendThread(ZsyncThread):
 
     def retry_file(self, client, file_path):
         file_path = os.path.join(self.src.prefix_path, file_path)
+        self.log('sync file failed, auto put in queue again and retry: %s' % \
+            file_path, logging.ERROR)
         self.file_queue.append(file_path)
         self.query_new_file(client)
         return
@@ -187,9 +189,7 @@ class RecvThread(ZsyncThread):
             self.file.open(file_path, 'wb', file_size, self.pipeline, file_mode, file_mtime)
         except Exception as e:
             service.query_new_file()
-            logging.error(str(e))
-            # service.do_stop(str(e))
-            # self.stop()
+            self.log(str(e), logging.ERROR)
             return
 
         if file_size == 0:
@@ -231,9 +231,7 @@ class RecvThread(ZsyncThread):
 
     def sync_file_timeout(self):
         self.file.close()
-        self.log('sync file failed, auto put in queue again and retry', logging.ERROR)
-
-        relpath = os.path.relpath(self.file.path, self.dst.prefix_path)
+        relpath = os.path.relpath(self.file.path, self.dst.path)
         self.remote.retry_file(relpath)
         return
 
@@ -264,6 +262,7 @@ class FileTransciver(Transceiver):
         self.child_proxies = []
         self.file_queue = deque()
         self.stoped = False
+        self.sub = None
 
         self.src = zsync_utils.CommonPath(self.args.src)
         self.dst = zsync_utils.CommonPath(self.args.dst)
@@ -271,7 +270,7 @@ class FileTransciver(Transceiver):
         return
 
     def remote_msg(self, remote, msg, level=logging.DEBUG):
-        self.log(level, 'remote: ' + msg)
+        logging.log(level, 'remote: ' + msg)
         return
 
     def log(self, level, msg):
@@ -295,6 +294,8 @@ class FileTransciver(Transceiver):
             return
         [child.do_stop() for child in self.child_proxies]
         [child.join() for child in self.childs]
+        if self.sub:
+            self.sub.wait()
         self.stoped = True
         return
 
@@ -377,7 +378,6 @@ class FileTransciver(Transceiver):
                 port = zhelpers.bind_to_random_port(sock)
                 ports.append(port)
 
-            logging.debug('send remote ports')
             self.remote.set_remote_ports(ports)
 
         if self.sender:
@@ -430,7 +430,7 @@ class FileTransciver(Transceiver):
                 self.stop()
 
             if self.childs and not self.has_child_alive():
-                logging.info('all thread stop, exit')
+                logging.info('%s all thread stop, exit' % self.__class__.__name__)
                 self.stop()
 
         return

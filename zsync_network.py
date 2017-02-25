@@ -92,6 +92,10 @@ class Transceiver(object):
         self.all_poller.register(sock)
         return
 
+    def delay_all_timeout(self):
+        [checker.feed() for checker in self.timeout_checkers.itervalues()]
+        return
+
     def add_timeout(self, sock, timeout):
         self.timeout_checkers[sock] = TimeoutChecker(timeout)
         return

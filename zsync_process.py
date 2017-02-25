@@ -191,7 +191,7 @@ class ZsyncClient(FileTransciver):
             args['port'] = self.remote_port
             args['local'] = True
 
-            zsync_utils.create_sub_process(args)
+            self.sub = zsync_utils.create_sub_process(args)
 
             self.register(self.remote_sock)
             self.add_timeout(self.remote_sock, self.args.timeout)

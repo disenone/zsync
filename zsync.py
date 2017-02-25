@@ -13,10 +13,30 @@ import logging
 import zsync_process
 import time
 
+def sys_excepthook(typ, value, tb):
+    import pdb
+    import traceback
+    traceback.print_exception(typ, value, tb)
+    msgs = []
+    while tb:
+        msg = 'locals: ' + str(tb.tb_frame.f_locals)
+        if len(msg) > 2000:
+            msg = msg[:2000] + ' Truncated...'
+        msgs.append(msg)
+        tb = tb.tb_next
 
-def prepare_log():
-    logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
-        datefmt='%Y-%m-%d,%H:%M:%S', level=logging.DEBUG)
+    print '\n'.join(msgs)
+    pdb.pm()
+    return
+
+def prepare_log(debug):
+    if debug:
+        logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
+            datefmt='%Y-%m-%d,%H:%M:%S', level=logging.DEBUG)
+        sys.excepthook = sys_excepthook
+    else:
+        logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
+            datefmt='%Y-%m-%d,%H:%M:%S', level=logging.INFO)
     return
 
 def prepare_args():
@@ -33,7 +53,10 @@ def prepare_args():
     parser.add_argument('--chunksize', type=int, default=262144, help='chunksize for each pipeline')
     parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
     parser.add_argument('--compress', action='store_true', help='compress data')
+    parser.add_argument('--debug', action='store_true', help='compress data')
     args = parser.parse_args()
+
+    prepare_log(args.debug)
 
     src = zsync_utils.CommonPath(args.src)
     dst = zsync_utils.CommonPath(args.dst)
@@ -66,6 +89,12 @@ def prepare_args():
     delattr(args, 'exclude')
 
     try:
+        args.src = args.src.decode(sys.stdin.encoding)
+        args.dst = args.dst.decode(sys.stdin.encoding)
+    except Exception as e:
+        logging.critical('path encoding error: ' + str(e))
+
+    try:
         zsync_utils.CommonExclude(args.excludes)
     except Exception as e:
         logging.error('--exclude pattern error: ' + str(e))
@@ -93,7 +122,6 @@ def run(args):
     return
 
 def main():
-    prepare_log()
     args = prepare_args()
     if args:
         run(args)

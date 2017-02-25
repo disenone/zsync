@@ -215,16 +215,21 @@ class CommonExclude(object):
         return False
 
 def create_sub_process(args_dict):
-
     import subprocess
     import inspect
+    import sys
     file_path = inspect.stack()[-1][1]
     dir_path = os.path.dirname(file_path)
     zsync_path = os.path.join(dir_path, 'zsync.py')
 
+    for key in ['src', 'dst']:
+        if type(args_dict[key]) is unicode:
+            args_dict[key] = args_dict[key].encode(sys.stdin.encoding)
+
     sub_args = [
         'python', zsync_path,
-        args_dict['src'], args_dict['dst'], \
+        args_dict['src'], \
+        args_dict['dst'], \
         '--port', str(args_dict['port']), \
         '--thread-num', str(args_dict['thread_num']), \
         '--timeout', str(args_dict['timeout']), \
