@@ -8,6 +8,7 @@ import errno
 import config
 import shutil
 import logging
+from collections import deque
 
 
 def check_file_same(file_path, file_size, file_mtime):
@@ -253,3 +254,47 @@ def create_sub_process(args_dict):
     logging.debug('creating subprocess %s' % sub_args)
     sub = subprocess.Popen(sub_args)
     return sub
+
+CHECKSUM_M = 1 << 16
+
+def calc_checksum(data):
+    # a = sum(data) mod M
+    # b = sum((i+1) * data[i]) mod M
+    # s = a + 2^16 * b
+    a = 0
+    b = 0
+    maxlen = len(data)
+    for i, char in enumerate(data):
+        ordc = ord(char)
+        a += ordc
+        b += (maxlen - i) * ordc
+        if a > CHECKSUM_M:
+            a %= CHECKSUM_M
+        if b > CHECKSUM_M:
+            b %= CHECKSUM_M
+    s = a + (b << 16)
+    return a, b, s
+
+class RollingChecksum(object):
+    def __init__(self, data=None):
+        self.roll_queue = None
+        self.a = 0
+        self.b = 0
+        self.s = 0
+        if data:
+            self.calc_checksum(data)
+        return
+
+    def calc_checksum(self, data):
+        self.roll_queue = deque((ord(char) for char in data), len(data))
+        maxlen = self.roll_queue.maxlen
+        self.a, self.b, self.s = calc_checksum(data)
+        return
+
+    def calc_next(self, char):
+        ordc = ord(char)
+        self.a = (self.a - self.roll_queue[0] + ordc) % CHECKSUM_M
+        self.b = (self.b - self.roll_queue.maxlen * self.roll_queue[0] + self.a) % CHECKSUM_M
+        self.roll_queue.append(ordc)
+        self.s = self.a + (self.b << 16)
+        return

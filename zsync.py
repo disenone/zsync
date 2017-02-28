@@ -39,21 +39,26 @@ def prepare_log(debug):
             datefmt='%Y-%m-%d,%H:%M:%S', level=logging.INFO)
     return
 
-def prepare_args():
+def prepare_args(help=False):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--daemon', action='store_true', help='daemon server')
-    parser.add_argument('--local', action='store_true', help='local server')
-    parser.add_argument('--remote', action='store_true', help='remote server')
+    parser.add_argument('--daemon', action='store_true', help='start as daemon server')
+    parser.add_argument('--local', action='store_true', help='start as local server')
+    parser.add_argument('--remote', action='store_true', help='start as remote server')
     parser.add_argument('src', type=str, default='', nargs='?', help='src path')
     parser.add_argument('dst', type=str, default='', nargs='?', help='dst path')
     parser.add_argument('-p', '--port', type=str, default='5555', help='if local, client port, else daemon port')
     parser.add_argument('--thread-num', type=int, default=3, help='sync thread num')
-    parser.add_argument('--timeout', type=int, default=10, help='connect timeout second')
+    parser.add_argument('--timeout', type=int, default=30, help='connect timeout second')
     parser.add_argument('--pipeline', type=int, default=10, help='file fetch pipeline')
     parser.add_argument('--chunksize', type=int, default=262144, help='chunksize for each pipeline')
-    parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync')
+    parser.add_argument('--exclude', type=str, action='append', help='exclude file or directory to sync, use regular expression')
     parser.add_argument('--compress', action='store_true', help='compress data')
-    parser.add_argument('--debug', action='store_true', help='compress data')
+    parser.add_argument('--debug', action='store_true', help='debug mode')
+
+    if help:
+        parser.print_help()
+        return
+
     args = parser.parse_args()
 
     prepare_log(args.debug)
@@ -84,6 +89,11 @@ def prepare_args():
     if not 1000 <= args.chunksize <= 1048576:
         logging.error('chunksize is invalid, must be in [1000, 500000]')
         return False
+
+    if not args.daemon:
+        if not args.src or not args.dst:
+            logging.error('src path or dst path is not specific')
+            return False
 
     args.excludes = args.exclude
     delattr(args, 'exclude')
@@ -125,6 +135,8 @@ def main():
     args = prepare_args()
     if args:
         run(args)
+    else:
+        prepare_args(help=True)
     return
 
 if __name__ == '__main__':
