@@ -7,7 +7,7 @@ import stat
 import errno
 import config
 import shutil
-import logging
+from zsync_logger import MYLOGGER
 from collections import deque
 
 
@@ -114,7 +114,7 @@ class CommonFile(object):
         self.chunk_map = {}
         self.credit = 0
         self.fetch_offset = 0
-        self.write_offset = 0
+        self.offset = 0
         self.total = 0
         self.writedone = False
         return
@@ -153,6 +153,7 @@ class CommonFile(object):
         return
 
     def fetch(self, offset, size):
+        self.offset = offset
         self.file.seek(offset, os.SEEK_SET)
         data = self.file.read(size)
         return data
@@ -161,8 +162,8 @@ class CommonFile(object):
         if not self.file:
             return
         self.file.write(data)
-        self.write_offset += len(data)
-        if self.write_offset == self.total:
+        self.offset += len(data)
+        if self.offset == self.total:
             self.writedone = True
             self.close()
         return
@@ -171,13 +172,13 @@ class CommonFile(object):
         if not self.file:
             return
 
-        if offset != self.write_offset:
+        if offset != self.offset:
             self.chunk_map[offset] = data
         else:
             self.write(data)
 
             for woffset in sorted(self.chunk_map.keys()):
-                if woffset == self.write_offset:
+                if woffset == self.offset:
                     chunk = self.chunk_map.pop(woffset)
                     self.write(chunk)
                 else:
@@ -251,7 +252,7 @@ def create_sub_process(args_dict):
     if args_dict.get('compress'):
         sub_args.append('--compress')
 
-    logging.debug('creating subprocess %s' % sub_args)
+    MYLOGGER.debug('creating subprocess %s' % sub_args)
     sub = subprocess.Popen(sub_args)
     return sub
 

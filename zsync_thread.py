@@ -10,6 +10,7 @@ from zsync_network import Transceiver, Proxy
 import config
 import logging
 import zlib
+from zsync_logger import MYLOGGER, log_file_progress
 
 
 class ZsyncThread(threading.Thread, Transceiver):
@@ -43,7 +44,7 @@ class ZsyncThread(threading.Thread, Transceiver):
 
     def do_stop(self, inproc, msg=''):
         if msg:
-            logging.debug(msg)
+            MYLOGGER.debug(msg)
         self.stop()
         return
 
@@ -89,6 +90,7 @@ class SendThread(ZsyncThread):
         return
 
     def try_send_new_file(self, client):
+        self.file.close()
         if not self.file_queue:
             client.send_over()
             self.stop()
@@ -114,6 +116,7 @@ class SendThread(ZsyncThread):
         file_size = file_stat.st_size
         file_mode = file_stat.st_mode
         file_time = file_stat.st_mtime
+        self.file.total = file_size
 
         client.on_new_file(os.path.relpath(file_path, self.src.prefix_path),
             file_type, file_mode, file_size, file_time)
@@ -197,7 +200,7 @@ class RecvThread(ZsyncThread):
             service.query_new_file()
             return
 
-        self.log('fetching file: %s size %s' % (file_path, file_size))
+        #self.log('fetching file: %s size %s' % (file_path, file_size))
         self.sendfetch(service)
         return
 
@@ -270,13 +273,13 @@ class FileTransciver(Transceiver):
         return
 
     def remote_msg(self, remote, msg, level=logging.DEBUG):
-        logging.log(level, 'remote: ' + msg)
+        MYLOGGER.log(level, 'remote: ' + msg)
         return
 
     def log(self, level, msg):
         if level >= logging.ERROR and self.remote:
             self.remote.remote_msg(msg, level)
-        logging.log(level, msg)
+        MYLOGGER.log(level, msg)
         return
 
     def on_child_log(self, child, msg, level):
@@ -409,10 +412,10 @@ class FileTransciver(Transceiver):
 
     def run(self):
         if not self._prepare():
-            logging.critical('prepare failed')
+            MYLOGGER.critical('prepare failed')
             return
 
-        logging.debug('%s runing' % self.__class__.__name__)
+        MYLOGGER.debug('%s runing' % self.__class__.__name__)
 
         while not self.stoped:
             try:
@@ -426,12 +429,21 @@ class FileTransciver(Transceiver):
                     self.remote.do_stop()
 
             if not self.check_timeout():
-                logging.info('timeout, exit')
+                MYLOGGER.info('timeout, exit')
                 self.stop()
+                break
 
             if self.childs and not self.has_child_alive():
-                logging.info('%s all thread stop, exit' % self.__class__.__name__)
+                MYLOGGER.info('%s all thread stop, exit' % self.__class__.__name__)
                 self.stop()
+                break
+
+            progress = []
+            for child in self.childs:
+                if child.file.file:
+                    progress.append((child.file.path, child.file.offset, child.file.total))
+
+            if progress:
+                log_file_progress(progress)
 
         return
-

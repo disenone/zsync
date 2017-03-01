@@ -2,7 +2,7 @@
 
 import zmq
 import cPickle
-import logging
+from zsync_logger import MYLOGGER as logging
 from collections import deque
 import zhelpers
 import time
@@ -110,7 +110,7 @@ class Transceiver(object):
 
         any_timeout = any([checker.timeout() for checker in self.timeout_checkers.itervalues()])
         if any_timeout:
-            logging.error('connect timeout')
+            MYLOGGER.error('connect timeout')
             return False
 
         return True
@@ -121,10 +121,10 @@ class Transceiver(object):
         if not self.send_queue:
             try:
                 sock.send_multipart(msg, zmq.NOBLOCK)
-                # logging.debug('sended: %s' % (msg, ))
+                # MYLOGGER.debug('sended: %s' % (msg, ))
                 return True
             except Exception as e:
-                # logging.debug('send error: %s, %s' % (e, msg))
+                # MYLOGGER.debug('send error: %s, %s' % (e, msg))
                 self.send_queue.push_queue(sock, msg)
         else:
             self.send_queue.push_queue(sock, msg)
@@ -157,7 +157,7 @@ class Transceiver(object):
                 while True:
                     try:
                         msg = self.recv(sock)
-                        #logging.debug('recved :%s' % msg)
+                        #MYLOGGER.debug('recved :%s' % msg)
                     except Exception, e:
                         break
                     self.dispatch(sock, msg)
@@ -180,7 +180,7 @@ class Transceiver(object):
 
         func = getattr(self, funcn, None)
         if not func:
-            logging.error('not found function "%s"' % msg)
+            MYLOGGER.error('not found function "%s"' % msg)
             return
 
         try:
@@ -189,7 +189,7 @@ class Transceiver(object):
             else:
                 args = cPickle.loads(msg[1])
         except Exception as e:
-            logging.error('invalid function args: %s' % msg)
+            MYLOGGER.error('invalid function args: %s' % msg)
             return
 
         proxy = Proxy(self, sock, identity)

@@ -12,32 +12,9 @@ from collections import deque
 import logging
 import zsync_process
 import time
+import zsync_logger
+from zsync_logger import MYLOGGER
 
-def sys_excepthook(typ, value, tb):
-    import pdb
-    import traceback
-    traceback.print_exception(typ, value, tb)
-    msgs = []
-    while tb:
-        msg = 'locals: ' + str(tb.tb_frame.f_locals)
-        if len(msg) > 2000:
-            msg = msg[:2000] + ' Truncated...'
-        msgs.append(msg)
-        tb = tb.tb_next
-
-    print '\n'.join(msgs)
-    pdb.pm()
-    return
-
-def prepare_log(debug):
-    if debug:
-        logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
-            datefmt='%Y-%m-%d,%H:%M:%S', level=logging.DEBUG)
-        sys.excepthook = sys_excepthook
-    else:
-        logging.basicConfig(format='%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
-            datefmt='%Y-%m-%d,%H:%M:%S', level=logging.INFO)
-    return
 
 def prepare_args(help=False):
     parser = argparse.ArgumentParser()
@@ -61,38 +38,39 @@ def prepare_args(help=False):
 
     args = parser.parse_args()
 
-    prepare_log(args.debug)
+    return args
 
+def args_check(args):
     src = zsync_utils.CommonPath(args.src)
     dst = zsync_utils.CommonPath(args.dst)
 
     if not src.isValid():
-        logging.error('src is invalid')
+        MYLOGGER.error('src is invalid')
         return False
 
     if not dst.isValid():
-        logging.error('dst is invalid')
+        MYLOGGER.error('dst is invalid')
         return False
 
     if not 0 < args.timeout <= 300:
-        logging.error('timeout is invalid, must be in [1, 300]')
+        MYLOGGER.error('timeout is invalid, must be in [1, 300]')
         return False
 
     if not 0 < args.thread_num <= 10:
-        logging.error('thread_num is invalid, must be in [1, 10]')
+        MYLOGGER.error('thread_num is invalid, must be in [1, 10]')
         return False
 
     if not 0 < args.pipeline <= 20:
-        logging.error('pipeline is invalid, must be in [1, 20]')
+        MYLOGGER.error('pipeline is invalid, must be in [1, 20]')
         return False
 
     if not 1000 <= args.chunksize <= 1048576:
-        logging.error('chunksize is invalid, must be in [1000, 500000]')
+        MYLOGGER.error('chunksize is invalid, must be in [1000, 500000]')
         return False
 
     if not args.daemon:
         if not args.src or not args.dst:
-            logging.error('src path or dst path is not specific')
+            MYLOGGER.error('src path or dst path is not specific')
             return False
 
     args.excludes = args.exclude
@@ -102,20 +80,23 @@ def prepare_args(help=False):
         args.src = args.src.decode(sys.stdin.encoding)
         args.dst = args.dst.decode(sys.stdin.encoding)
     except Exception as e:
-        logging.critical('path encoding error: ' + str(e))
+        MYLOGGER.critical('path encoding error: ' + str(e))
 
     try:
         zsync_utils.CommonExclude(args.excludes)
     except Exception as e:
-        logging.error('--exclude pattern error: ' + str(e))
+        MYLOGGER.error('--exclude pattern error: ' + str(e))
         return False
 
-    logging.debug(args)
-
-    return args
+    MYLOGGER.debug(args)
+    return True
 
 # run in different mode
 def run(args):
+    if not args_check(args):
+        prepare_args(help = True)
+        return
+
     if args.daemon:
         target = zsync_process.ZsyncDaemon(args)
 
@@ -134,13 +115,11 @@ def run(args):
 def main():
     args = prepare_args()
     if args:
-        run(args)
-    else:
-        prepare_args(help=True)
+        zsync_logger.wrapper(run, args)
     return
 
 if __name__ == '__main__':
     begin_time = time.time()
     main()
     end_time = time.time()
-    logging.info('cost time: %ss' % (end_time - begin_time))
+    MYLOGGER.info('cost time: %ss' % (end_time - begin_time))

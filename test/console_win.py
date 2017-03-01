@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import ctypes
+import logging
 
 class COORD(ctypes.Structure):
     _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
@@ -28,20 +29,31 @@ def win_console():
     buffer_info = BufferInfo()
     ctypes.windll.kernel32.GetConsoleScreenBufferInfo(std_out_handle, buffer_info)
     print buffer_info.dwSize.X, buffer_info.dwSize.Y, buffer_info.dwCursorPosition.X, buffer_info.dwCursorPosition.Y
-
+    logging.error('test')
+    ctypes.windll.kernel32.GetConsoleScreenBufferInfo(std_out_handle, buffer_info)
+    print buffer_info.dwSize.X, buffer_info.dwSize.Y, buffer_info.dwCursorPosition.X, buffer_info.dwCursorPosition.Y
+    return
     dwCursorPosition = COORD()
     dwCursorPosition.X = buffer_info.dwCursorPosition.X
     dwCursorPosition.Y = buffer_info.dwCursorPosition.Y+10
     ctypes.windll.kernel32.SetConsoleCursorPosition(std_out_handle,dwCursorPosition)
     i=1
     while True:
-        print i
-        print i + 1
+        logging.error(i)
+        logging.error(i + 1)
         if i == 1:
             print 'hihi'
         i += 1
         ctypes.windll.kernel32.SetConsoleCursorPosition(std_out_handle,dwCursorPosition)
     exit()
 
+def write_return():
+    logging.basicConfig(format=u'%(asctime)s.%(msecs)03d %(levelname)s: %(message)s',
+            datefmt='%Y-%m-%d,%H:%M:%S', level=logging.DEBUG)
+
+    logging.error(u'你好')
+    return
+
 if __name__ == '__main__':
     win_console()
+    #write_return()

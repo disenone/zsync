@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import logging
 import zmq
 import zhelpers
 from collections import deque
@@ -8,6 +7,7 @@ import config
 import zsync_network
 import zsync_utils
 from zsync_thread import FileTransciver
+from zsync_logger import MYLOGGER
 
 
 class ZsyncDaemon(zsync_network.Transceiver):
@@ -26,7 +26,7 @@ class ZsyncDaemon(zsync_network.Transceiver):
         try:
             self.sock.bind('tcp://*:%s' % self.port)
         except Exception as e:
-            logging.critical(str(e))
+            MYLOGGER.critical(str(e))
             return False
 
         self.register(self.sock)
@@ -36,7 +36,7 @@ class ZsyncDaemon(zsync_network.Transceiver):
         if not self._prepare():
             return
 
-        logging.info('zsync daemon mode started.')
+        MYLOGGER.info('zsync daemon mode started.')
         while True:
             polls = self.poll(1000)
             self.deal_poll(polls)
@@ -68,7 +68,7 @@ class ZsyncDaemon(zsync_network.Transceiver):
     def on_client_exit(self, client, msg):
         if client in self.waiting_clients:
             self.waiting_clients.remove(client)
-            logging.warning('client %s exit: %s' % (client.identity, msg))
+            MYLOGGER.warning('client %s exit: %s' % (client.identity, msg))
         return
 
     def on_new_service(self, service, port):
@@ -99,7 +99,7 @@ class ZsyncRemoteService(FileTransciver):
         self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
         self.remote_port = zhelpers.bind_to_random_port(self.remote_sock)
         if not self.remote_port:
-            logging.critical('service failed to bind random port')
+            MYLOGGER.critical('service failed to bind random port')
             return False
         self.remote = zsync_network.Proxy(self, self.remote_sock)
 
@@ -111,7 +111,7 @@ class ZsyncRemoteService(FileTransciver):
         self.register(self.daemon_sock)
 
         self.daemon.on_new_service(self.remote_port)
-        logging.info('zsync remote service started.')
+        MYLOGGER.info('zsync remote service started.')
         return True
 
     def begin_sync(self, remote):
@@ -149,7 +149,7 @@ class ZsyncLocalService(FileTransciver):
 
         self.remote.shake_hand()
         self.create_childs()
-        logging.debug('local service started')
+        MYLOGGER.debug('local service started')
         return True
 
 
@@ -167,15 +167,15 @@ class ZsyncClient(FileTransciver):
 
     def _prepare(self):
         if not self.src.isValid():
-            logging.error('src path is invalid')
+            MYLOGGER.error('src path is invalid')
             return False
 
         if not self.dst.isValid():
-            logging.error('dst path is invalid')
+            MYLOGGER.error('dst path is invalid')
             return False
 
         if not self.src.isLocal() and not self.dst.isLocal():
-            logging.error('src and dst cannot be both remote address')
+            MYLOGGER.error('src and dst cannot be both remote address')
             return False
 
         # need local service
@@ -184,7 +184,7 @@ class ZsyncClient(FileTransciver):
             self.remote_sock = zhelpers.nonblocking_socket(self.ctx, zmq.PAIR)
             self.remote_port = zhelpers.bind_to_random_port(self.remote_sock)
             if not self.remote_port:
-                logging.critical('failed to bind random to random port')
+                MYLOGGER.critical('failed to bind random to random port')
                 return False
 
             args = self.args.__dict__.copy()
@@ -215,7 +215,7 @@ class ZsyncClient(FileTransciver):
             self.daemon = zsync_network.Proxy(self, self.daemon_sock)
             self.daemon.on_new_client(self.args.__dict__)
 
-        logging.debug('client started')
+        MYLOGGER.debug('client started')
         return True
 
     def on_new_serivce(self, daemon, port):
