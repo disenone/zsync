@@ -410,6 +410,7 @@ class FileTransciver(Transceiver):
     def _prepare(self):
         return False
 
+
     def run(self):
         if not self._prepare():
             MYLOGGER.critical('prepare failed')
