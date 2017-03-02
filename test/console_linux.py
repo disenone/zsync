@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 import time
 import curses
+import locale
 
+locale.setlocale(locale.LC_ALL, '')
+code = locale.getpreferredencoding()
 
 def func(stdscr):
 	# pad = curses.newpad(100, 100)
@@ -14,13 +17,17 @@ def func(stdscr):
 
 # #  Displays a section of the pad in the middle of the screen
 	# #pad.refresh( 0,0, 5,5, 20,75)
-
-	print 'abc'
-	print 'abc'
-	time.sleep(10)
+	stdscr.addstr(('%s' % '你好').decode('utf-8').encode(code))
+	stdscr.refresh()
+	time.sleep(5)
+	y, x = curses.getsyx()
+	curses.setsyx(y, 0)
+	stdscr.addstr(('%s' % '傻逼').decode('utf-8').encode(code))
+	time.sleep(5)
 
 curses.wrapper(func)
 
+print code
 # stdscr = curses.initscr()
 # curses.noecho()
 # curses.cbreak()
