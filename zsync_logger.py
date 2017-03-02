@@ -11,13 +11,16 @@ except:
 MYLOGGER = logging.getLogger('MyLogger')
 MYLOGGER.propagate = False
 
+KSIZE = 1024
+MSIZE = 1048576
+
 def file_size_string(size):
-    if size < 1024:
+    if size < KSIZE:
         return str(size)
-    elif size < 1048576:
-        return '%.1fK' % (size / 1024.0)
+    elif size < MSIZE:
+        return '%.1fK' % (1.0 * size / KSIZE)
     else:
-        return '%.1fM' % (size / 1048576.0)
+        return '%.1fM' % (1.0 * size / MSIZE)
 
 class BaseLogger(logging.Handler):
     def __init__(self):
@@ -31,11 +34,7 @@ class BaseLogger(logging.Handler):
         raise NotImplementedError
 
     def emit_file_progress(self, progress):
-        for file, curs, totals in progress:
-            print file
-            print file_size_string(curs), "/", file_size_string(totals)
-        self._setCurPos()
-        return
+        raise NotImplementedError
 
 class NoLogger(logging.Handler):
     def __init__(self):
@@ -76,6 +75,7 @@ class WinLogger(BaseLogger):
         self.buffer_info = BufferInfo()
         self.curPos = COORD()
         self._updateCurPos()
+        self.lastlines = 0
         return
 
     def _getCurPos(self):
@@ -96,6 +96,27 @@ class WinLogger(BaseLogger):
         self._updateCurPos()
         return
 
+    def emit_file_progress(self, progress):
+        line_len = self.buffer_info.dwSize.X - 1
+        lines = 0
+        for file, curs, totals in progress:
+            if totals < MSIZE:
+                continue
+
+            print file + ' ' * (line_len - len(file))
+
+            string = '%s / %s' % (file_size_string(curs), file_size_string(totals))
+            print string + ' ' * (line_len - len(string))
+            lines += 2
+
+        if self.lastlines > lines:
+            string = ' ' * line_len
+            for i in xrange(self.lastlines - lines):
+                print string
+
+        self.lastlines = lines
+        self._setCurPos()
+        return
 
 class CursesLogger(BaseLogger):
     def __init__(self, screen):
@@ -152,6 +173,9 @@ class CursesLogger(BaseLogger):
             self.handleError(record)
 
         self._updateCurPos()
+        return
+
+    def emit_file_progress(self, progress):
         return
 
 def log_file_progress(progress):

@@ -423,6 +423,14 @@ class FileTransciver(Transceiver):
                 polls = self.poll(1000)
                 self.deal_poll(polls)
 
+                progress = []
+                for child in self.childs:
+                    if child.file.file:
+                        progress.append((child.file.path, child.file.offset, child.file.total))
+
+                if progress:
+                    log_file_progress(progress)
+
             except KeyboardInterrupt:
                 self.log(logging.INFO, 'user interrupted, exit')
                 self.stop()
@@ -438,13 +446,5 @@ class FileTransciver(Transceiver):
                 MYLOGGER.info('%s all thread stop, exit' % self.__class__.__name__)
                 self.stop()
                 break
-
-            progress = []
-            for child in self.childs:
-                if child.file.file:
-                    progress.append((child.file.path, child.file.offset, child.file.total))
-
-            if progress:
-                log_file_progress(progress)
 
         return
