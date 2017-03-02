@@ -3,15 +3,8 @@
 import argparse
 import time
 import sys
-import zmq
-import zsync_thread
 import zsync_utils
-import zhelpers
-import subprocess
-from collections import deque
-import logging
 import zsync_process
-import time
 import zsync_logger
 from zsync_logger import MYLOGGER
 
@@ -93,6 +86,7 @@ def args_check(args):
 
 # run in different mode
 def run(args):
+    begin_time = time.time()
     if not args_check(args):
         prepare_args(help = True)
         return
@@ -110,6 +104,8 @@ def run(args):
         target = zsync_process.ZsyncClient(args)
     
     target.run()
+    end_time = time.time()
+    MYLOGGER.info('cost time: %ss' % (end_time - begin_time))
     return
 
 def main():
@@ -119,7 +115,5 @@ def main():
     return
 
 if __name__ == '__main__':
-    begin_time = time.time()
     main()
-    end_time = time.time()
-    MYLOGGER.info('cost time: %ss' % (end_time - begin_time))
+

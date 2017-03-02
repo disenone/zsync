@@ -133,49 +133,68 @@ class CursesLogger(BaseLogger):
             self._unicode = False
 
         self.curPos = 0, 0
+        self.lastlines = 0
         return
 
     def _updateCurPos(self):
-        self.curPos = curses.getsyx()
+        self.curPos = self.screen.getyx()
         return
 
     def _setCurPos(self):
-        curses.setsyx(*self.curPos)
+        self.screen.move(*self.curPos)
         return
 
-    def emit(self, record):
+    def _addstr(self, msg):
+        screen = self.screen
         try:
-            msg = self.format(record)
-            screen = self.screen
-            fs = "\n%s"
             if not self._unicode: #if no unicode support...
-                screen.addstr(fs % msg)
-                screen.refresh()
+                screen.addstr(msg)
             else:
                 try:
                     if (isinstance(msg, unicode) ):
-                        ufs = u'\n%s'
                         try:
-                            screen.addstr(ufs % msg)
-                            screen.refresh()
+                            screen.addstr(msg)
                         except UnicodeEncodeError:
-                            screen.addstr((ufs % msg).encode(self.locale_encoding))
-                            screen.refresh()
+                            screen.addstr(msg.encode(self.locale_encoding))
                     else:
-                        screen.addstr(fs % msg)
-                        screen.refresh()
+                        screen.addstr(msg)
                 except UnicodeError:
-                    screen.addstr(fs % msg.encode("UTF-8"))
-                    screen.refresh()
+                    screen.addstr(msg.encode("UTF-8"))
         except (KeyboardInterrupt, SystemExit):
             raise
-        except:
-            self.handleError(record)
+        return
 
+    def emit(self, record):
+        msg = self.format(record)
+        msg = msg.replace('\x00', '') + '\n'
+
+        self._addstr(msg)
+        self.screen.refresh()
         self._updateCurPos()
         return
 
     def emit_file_progress(self, progress):
+        line_len = self.screen.getmaxyx()[1] - 1
+        lines = 0
+        for file, curs, totals in progress:
+            if totals < MSIZE:
+                continue
+
+            string = file + ' ' * (line_len - len(file)) + '\n'
+            self._addstr(string)
+
+            string = '%s / %s\n' % (file_size_string(curs), file_size_string(totals))
+            self._addstr(string)
+            lines += 2
+
+        if self.lastlines > lines:
+            string = ' ' * line_len + '\n'
+            for i in xrange(self.lastlines - lines):
+                self.screen.addstr(string)
+
+        self.lastlines = lines
+        self.screen.refresh()
+        self._setCurPos()
         return
 
 def log_file_progress(progress):
@@ -237,10 +256,10 @@ def nolog_wrapper(func, args):
     return
 
 def wrapper(func, args):
-    if args.local:
+    if args.local or args.remote or args.daemon:
         nolog_wrapper(func, args)
     elif HAVE_CURSES:
-        curses.wrapper(func, args)
+        curses.wrapper(curses_wrapper, func, args)
     else:
         win_wrapper(func, args)
     return

@@ -20,9 +20,10 @@ def func(stdscr):
 	stdscr.addstr(('%s' % '你好').decode('utf-8').encode(code))
 	stdscr.refresh()
 	time.sleep(5)
-	y, x = curses.getsyx()
-	curses.setsyx(y, 0)
+	y, x = stdscr.getyx()
+	stdscr.move(y, 0)
 	stdscr.addstr(('%s' % '傻逼').decode('utf-8').encode(code))
+	stdscr.refresh()
 	time.sleep(5)
 
 curses.wrapper(func)
