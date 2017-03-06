@@ -1,7 +1,13 @@
 # zsync
 rsync implemented by zmq
 
+### Install
+* install python
+* pip install zmq
 
-TODO:
-1. messy code in chinese or sign
-2. resend when failed
+
+### Usage
+* server side: python zsync.py --daemon
+* client side: python zsync src_path dst_path
+* more info: python zsync --help
+
