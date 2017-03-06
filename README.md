@@ -1,5 +1,5 @@
 # zsync
-rsync implemented by zmq
+files sync implemented by zmq
 
 ### Install
 * install python
